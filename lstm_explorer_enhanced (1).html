@@ -1,0 +1,3161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>LSTMVis — Long Short-Term Memory Explorer</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@300;400;500;600&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --bg: #0c0a08;
+  --surface: #131109;
+  --surface2: #1a1710;
+  --surface3: #231f15;
+  --border: #2a2416;
+  --border2: #38301e;
+  --gold: #f0a500;
+  --gold2: #e07b00;
+  --amber: #ff6b35;
+  --green: #4ade80;
+  --teal: #2dd4bf;
+  --rose: #fb7185;
+  --blue: #60a5fa;
+  --text: #f0ead6;
+  --text-muted: #7a6e58;
+  --text-dim: #b5a98a;
+  --cell: #f59e32;
+  --forget: #ef4444;
+  --input: #4ade80;
+  --output: #60a5fa;
+  --update: #a78bfa;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: 'Outfit', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+
+/* ── SCANLINES texture overlay ── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+  pointer-events: none; z-index: 999;
+}
+
+/* ══ NAV ══ */
+nav {
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  height: 54px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  gap: 4px;
+  z-index: 100;
+}
+.nav-logo {
+  font-family: 'Instrument Serif', serif;
+  font-size: 20px;
+  letter-spacing: -0.3px;
+  margin-right: 18px;
+  white-space: nowrap;
+  line-height: 1;
+}
+.nav-logo .hi { color: var(--gold); }
+.nav-logo .ver {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px; color: var(--text-muted);
+  font-weight: 300; margin-left: 6px; vertical-align: middle;
+}
+.nav-links { display: flex; gap: 2px; flex: 1; }
+.nav-btn {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px; padding: 6px 14px;
+  border-radius: 6px; border: none; cursor: pointer;
+  background: transparent; color: var(--text-muted);
+  transition: all 0.18s; white-space: nowrap;
+}
+.nav-btn:hover { background: var(--surface2); color: var(--text); }
+.nav-btn.active {
+  background: var(--surface3);
+  color: var(--gold);
+  border: 1px solid var(--border2);
+}
+.nav-pulse {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green); margin-left: auto;
+  animation: blink 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+/* Progress strip */
+.prog-strip { height: 2px; background: var(--border); flex-shrink: 0; }
+.prog-bar { height: 100%; background: linear-gradient(90deg,var(--gold),var(--amber)); width: 0; transition: width .4s ease; }
+
+/* ══ PAGES ══ */
+.page { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+.page.active { display: flex; }
+.scroll-y { overflow-y: auto; }
+.scroll-y::-webkit-scrollbar { width: 4px; }
+.scroll-y::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ══════════════ HOME ══════════════ */
+#page-home {
+  align-items: center;
+  position: relative; overflow-y: auto;
+  background: radial-gradient(ellipse at 25% 60%, #1f1500 0%, var(--bg) 55%),
+              radial-gradient(ellipse at 75% 30%, #0d0f1f 0%, transparent 50%);
+}
+#page-home::-webkit-scrollbar { width: 4px; }
+#page-home::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+.home-grid {
+  position: absolute; inset: 0; pointer-events: none;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 52px 52px;
+  opacity: 0.4;
+}
+.home-ticker {
+  position: sticky; bottom: 0; left: 0; right: 0;
+  height: 32px; background: var(--surface);
+  border-top: 1px solid var(--border);
+  overflow: hidden; display: flex; align-items: center;
+  z-index: 10; width: 100%;
+}
+.home-ticker-inner {
+  white-space: nowrap;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px; color: var(--text-muted);
+  animation: ticker 30s linear infinite;
+}
+@keyframes ticker { from{transform:translateX(0)} to{transform:translateX(-50%)} }
+.home-body { position: relative; z-index: 2; max-width: 760px; padding: 60px 32px 40px; text-align: center; margin: 0 auto; width: 100%; }
+.home-eyebrow {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: var(--gold); letter-spacing: 4px; text-transform: uppercase;
+  margin-bottom: 22px; opacity: 0.8;
+}
+.home-title {
+  font-family: 'Instrument Serif', serif;
+  font-size: clamp(42px,7vw,82px);
+  line-height: 1.0; letter-spacing: -2px; margin-bottom: 10px;
+}
+.home-title em { color: var(--gold); font-style: italic; }
+.home-title .sm { font-family: 'IBM Plex Mono', monospace; font-size: 0.35em; color: var(--text-muted); vertical-align: super; font-style: normal; letter-spacing: 1px; }
+.home-sub {
+  font-size: 15px; color: var(--text-dim); line-height: 1.75;
+  max-width: 500px; margin: 16px auto 36px;
+}
+.home-cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 52px; }
+.btn-gold {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  padding: 12px 28px; background: var(--gold); color: #0c0a08;
+  border: none; border-radius: 7px; cursor: pointer; font-weight: 600;
+  letter-spacing: 0.5px; transition: all 0.2s;
+}
+.btn-gold:hover { background: #ffc03d; transform: translateY(-2px); box-shadow: 0 8px 28px #f0a50044; }
+.btn-outline {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  padding: 12px 28px; background: transparent; color: var(--text);
+  border: 1px solid var(--border2); border-radius: 7px; cursor: pointer;
+  transition: all 0.2s; letter-spacing: 0.5px;
+}
+.btn-outline:hover { border-color: var(--gold); color: var(--gold); }
+.home-cards { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; text-align: left; }
+.hcard {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 18px; cursor: pointer; transition: all 0.2s;
+}
+.hcard:hover { border-color: var(--border2); transform: translateY(-3px); box-shadow: 0 12px 40px #00000044; }
+.hcard-icon { font-size: 22px; margin-bottom: 10px; }
+.hcard-title { font-size: 13px; font-weight: 700; margin-bottom: 5px; }
+.hcard-desc { font-size: 11px; color: var(--text-muted); line-height: 1.6; }
+.home-orbits { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.orbit-ring {
+  position: absolute; border-radius: 50%;
+  border: 1px solid; opacity: 0.06;
+  animation: spinRing linear infinite;
+}
+@keyframes spinRing { from{transform:translate(-50%,-50%) rotate(0)} to{transform:translate(-50%,-50%) rotate(360deg)} }
+
+/* ══════════════ LEARN ══════════════ */
+.learn-wrap { display: flex; flex: 1; overflow: hidden; }
+.learn-toc {
+  width: 230px; background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 20px 0; flex-shrink: 0; overflow-y: auto;
+}
+.learn-toc::-webkit-scrollbar { width: 3px; }
+.toc-group { padding: 4px 16px 12px; }
+.toc-group-title {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+  color: var(--gold); letter-spacing: 2px; text-transform: uppercase;
+  margin-bottom: 6px; opacity: 0.7;
+}
+.toc-link {
+  font-size: 12px; color: var(--text-muted); padding: 6px 10px;
+  border-radius: 6px; cursor: pointer; transition: all 0.15s;
+  margin-bottom: 1px; display: block; line-height: 1.4;
+}
+.toc-link:hover { background: var(--surface2); color: var(--text); }
+.toc-link.active { background: var(--surface3); color: var(--gold); }
+.learn-body { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.learn-scroll { flex: 1; overflow-y: auto; padding: 36px 52px 52px; max-width: 860px; }
+.learn-scroll::-webkit-scrollbar { width: 4px; }
+.learn-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+.lsec { margin-bottom: 60px; scroll-margin-top: 20px; }
+.ltag {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  background: var(--surface3); border: 1px solid var(--border2);
+  color: var(--gold); padding: 3px 10px; border-radius: 12px;
+  display: inline-block; margin-bottom: 14px; letter-spacing: 1px;
+}
+.lh1 {
+  font-family: 'Instrument Serif', serif;
+  font-size: 36px; letter-spacing: -1px; margin-bottom: 14px; line-height: 1.15;
+}
+.lh2 {
+  font-size: 18px; font-weight: 700; margin: 28px 0 12px; color: var(--text);
+  display: flex; align-items: center; gap: 10px;
+}
+.lh2 .num {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px; color: var(--gold); background: var(--surface3);
+  border: 1px solid var(--border2); padding: 2px 8px; border-radius: 4px;
+}
+.lp { font-size: 14px; color: var(--text-dim); line-height: 1.85; margin-bottom: 14px; }
+.callout {
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-left: 3px solid var(--gold); border-radius: 0 8px 8px 0;
+  padding: 16px 20px; margin: 20px 0; font-size: 13px;
+  color: var(--text-dim); line-height: 1.75;
+}
+.callout.warn { border-left-color: var(--amber); }
+.callout.ok { border-left-color: var(--green); }
+.callout strong { color: var(--text); }
+.gate-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 20px 0; }
+.gate-card {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 18px; transition: border-color 0.2s;
+}
+.gate-card:hover { border-color: var(--border2); }
+.gc-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.gc-pip { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
+.gc-name { font-size: 14px; font-weight: 700; }
+.gc-alias { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-muted); }
+.gc-body { font-size: 12px; color: var(--text-muted); line-height: 1.65; }
+.formula {
+  background: var(--surface3); border: 1px solid var(--border2);
+  border-radius: 8px; padding: 16px 20px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+  color: var(--gold); margin: 14px 0; line-height: 2.1;
+}
+.formula .cm { color: var(--text-muted); font-size: 10px; }
+.formula .kw { color: var(--amber); }
+.formula .fn { color: var(--teal); }
+.formula .op { color: var(--rose); }
+.data-table {
+  width: 100%; border-collapse: collapse;
+  font-size: 12px; font-family: 'IBM Plex Mono', monospace;
+  margin: 14px 0;
+}
+.data-table th {
+  text-align: left; padding: 9px 14px;
+  background: var(--surface3); color: var(--gold);
+  font-size: 9px; letter-spacing: 1px; text-transform: uppercase;
+  border-bottom: 1px solid var(--border2);
+}
+.data-table td {
+  padding: 9px 14px; border-bottom: 1px solid var(--border);
+  color: var(--text-dim); vertical-align: top;
+}
+.data-table tr:last-child td { border-bottom: none; }
+.data-table td:first-child { color: var(--text); font-weight: 500; }
+.bullet-list { list-style: none; margin: 10px 0; display: flex; flex-direction: column; gap: 8px; }
+.bullet-list li {
+  display: flex; gap: 10px; align-items: flex-start;
+  font-size: 13px; color: var(--text-dim); line-height: 1.65;
+}
+.bullet-list li::before { content: '◆'; color: var(--gold); font-size: 8px; flex-shrink: 0; margin-top: 5px; }
+.step-flow { display: flex; flex-direction: column; gap: 14px; margin: 20px 0; counter-reset: sf; }
+.sf-item { display: flex; gap: 16px; align-items: flex-start; counter-increment: sf; }
+.sf-num {
+  width: 30px; height: 30px; border-radius: 6px;
+  background: var(--gold); color: #0c0a08;
+  font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; content: counter(sf); margin-top: 2px;
+}
+.sf-body { font-size: 13px; color: var(--text-dim); line-height: 1.75; }
+.sf-body strong { color: var(--text); }
+
+/* ══════════════ SIMULATE ══════════════ */
+.sim-wrap { display: flex; flex: 1; overflow: hidden; }
+.sim-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.sim-toolbar {
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.tl-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: var(--text-muted); white-space: nowrap;
+}
+.tl-select {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--surface2); color: var(--text); cursor: pointer;
+}
+.tl-select:focus { outline: none; border-color: var(--gold); }
+.tl-btn {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  padding: 7px 14px; border-radius: 6px; border: 1px solid var(--border);
+  cursor: pointer; background: var(--surface2); color: var(--text);
+  transition: all 0.18s; white-space: nowrap;
+}
+.tl-btn:hover { border-color: var(--gold); color: var(--gold); }
+.tl-btn.run { background: var(--gold); color: #0c0a08; border-color: var(--gold); font-weight: 600; }
+.tl-btn.run:hover { background: #ffc03d; }
+.tl-btn.danger { border-color: var(--rose); color: var(--rose); }
+.tl-btn.danger:hover { background: #fb718522; }
+.tl-sep { width: 1px; height: 20px; background: var(--border); flex-shrink: 0; }
+.tl-slider { display: flex; align-items: center; gap: 8px; }
+input[type=range] { accent-color: var(--gold); cursor: pointer; }
+.tl-val {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: var(--gold); min-width: 26px;
+}
+.sim-canvas-area {
+  flex: 1; overflow: hidden; display: flex; gap: 0;
+}
+#lstmCanvas {
+  flex: 1; display: block; background: var(--bg);
+  cursor: default;
+}
+.sim-panel {
+  width: 280px; background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.sp-section {
+  padding: 14px; border-bottom: 1px solid var(--border);
+}
+.sp-title {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9px;
+  color: var(--gold); letter-spacing: 2px; text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.sp-scroll {
+  flex: 1; overflow-y: auto; padding: 14px;
+}
+.sp-scroll::-webkit-scrollbar { width: 3px; }
+.sp-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+.gate-meter { margin-bottom: 12px; }
+.gm-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.gm-label {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: var(--text-muted); width: 60px; flex-shrink: 0;
+}
+.gm-bar-wrap { flex: 1; height: 8px; background: var(--surface3); border-radius: 4px; overflow: hidden; }
+.gm-bar { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
+.gm-val {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: var(--text-dim); width: 34px; text-align: right; flex-shrink: 0;
+}
+.state-table { width: 100%; }
+.state-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 0; border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.state-row:last-child { border-bottom: none; }
+.state-key { font-family: 'IBM Plex Mono', monospace; color: var(--text-muted); font-size: 10px; }
+.state-val { font-family: 'IBM Plex Mono', monospace; color: var(--gold); font-size: 11px; font-weight: 500; }
+.seq-display {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  color: var(--text-dim); line-height: 2; letter-spacing: 1px;
+  word-break: break-all;
+}
+.seq-char { display: inline-block; padding: 2px 4px; border-radius: 3px; transition: all 0.3s; }
+.seq-char.active { background: var(--gold); color: #0c0a08; font-weight: 600; }
+.seq-char.processed { color: var(--text-muted); }
+.pred-display {
+  font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+  color: var(--text-dim); line-height: 1.8;
+}
+.pred-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.pred-label { width: 20px; color: var(--text-muted); font-size: 10px; flex-shrink: 0; }
+.pred-track { flex: 1; height: 6px; background: var(--surface3); border-radius: 3px; overflow: hidden; }
+.pred-fill { height: 100%; border-radius: 3px; transition: width 0.4s; }
+.pred-pct { font-size: 10px; color: var(--text-dim); width: 36px; text-align: right; }
+.log-list {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.log-item {
+  padding: 5px 8px; border-radius: 4px;
+  background: var(--surface2); border-left: 2px solid transparent;
+  color: var(--text-muted); line-height: 1.5; transition: all 0.3s;
+}
+.log-item.active { border-left-color: var(--gold); color: var(--text); background: #f0a50011; }
+
+/* ══════════════ DOWNLOAD ══════════════ */
+.dl-wrap { display: flex; flex: 1; overflow: hidden; }
+.dl-main { flex: 1; padding: 36px; overflow-y: auto; }
+.dl-main::-webkit-scrollbar { width: 4px; }
+.dl-main::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+.dl-sidebar {
+  width: 300px; background: var(--surface);
+  border-left: 1px solid var(--border);
+  padding: 28px 20px;
+  display: flex; flex-direction: column; gap: 20px;
+  flex-shrink: 0;
+}
+.dl-h1 {
+  font-family: 'Instrument Serif', serif;
+  font-size: 30px; letter-spacing: -0.5px; margin-bottom: 6px;
+}
+.dl-sub { font-size: 13px; color: var(--text-muted); line-height: 1.65; margin-bottom: 24px; }
+.dl-section-title { font-size: 13px; font-weight: 700; margin-bottom: 12px; }
+.dl-check {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 14px; background: var(--surface2);
+  border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: 8px; cursor: pointer; transition: border-color 0.15s;
+}
+.dl-check:hover { border-color: var(--border2); }
+.dl-check input { accent-color: var(--gold); margin-top: 2px; flex-shrink: 0; }
+.dl-check label { font-size: 13px; cursor: pointer; }
+.dl-check .sub { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+.dl-btn-main {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  padding: 13px; background: var(--gold); color: #0c0a08;
+  border: none; border-radius: 8px; cursor: pointer; font-weight: 600;
+  transition: all 0.2s; width: 100%; margin-bottom: 8px;
+}
+.dl-btn-main:hover { background: #ffc03d; }
+.dl-btn-sec {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  padding: 11px; background: transparent; color: var(--text);
+  border: 1px solid var(--border2); border-radius: 8px;
+  cursor: pointer; transition: all 0.2s; width: 100%;
+}
+.dl-btn-sec:hover { border-color: var(--gold); color: var(--gold); }
+.report-box {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 28px 32px;
+}
+.report-h1 { font-family: 'Instrument Serif', serif; font-size: 22px; margin-bottom: 4px; }
+.report-meta { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-muted); margin-bottom: 24px; }
+.report-section { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--gold); letter-spacing: 1px; text-transform: uppercase; margin: 20px 0 10px; }
+.rtable { width: 100%; border-collapse: collapse; font-family: 'IBM Plex Mono', monospace; font-size: 11px; margin: 8px 0; }
+.rtable th { text-align: left; padding: 8px 12px; background: var(--surface2); color: var(--text-muted); font-size: 9px; border: 1px solid var(--border); }
+.rtable td { padding: 8px 12px; border: 1px solid var(--border); color: var(--text-dim); }
+.no-data { text-align: center; padding: 64px 20px; color: var(--text-muted); }
+.no-data .nd-icon { font-size: 44px; margin-bottom: 14px; }
+.no-data .nd-msg { font-size: 14px; margin-bottom: 8px; }
+.no-data .nd-sub { font-size: 12px; color: var(--text-muted); }
+
+/* ══════════════ ABOUT ══════════════ */
+.about-scroll { flex: 1; overflow-y: auto; }
+.about-scroll::-webkit-scrollbar { width: 4px; }
+.about-scroll::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+.about-hero {
+  padding: 60px 52px 44px;
+  border-bottom: 1px solid var(--border);
+  background: radial-gradient(ellipse at 20% 50%, #1f1500 0%, transparent 65%);
+  position: relative; overflow: hidden;
+}
+.about-hero::after {
+  content: 'LSTM';
+  position: absolute; right: -20px; top: 50%;
+  transform: translateY(-50%);
+  font-family: 'Instrument Serif', serif;
+  font-size: 160px; color: var(--surface2); line-height: 1;
+  pointer-events: none; user-select: none;
+}
+.about-eyebrow {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: var(--gold); letter-spacing: 3px; text-transform: uppercase;
+  margin-bottom: 14px; opacity: 0.8;
+}
+.about-hero h1 {
+  font-family: 'Instrument Serif', serif;
+  font-size: 44px; letter-spacing: -1.5px; margin-bottom: 14px;
+}
+.about-hero p { font-size: 15px; color: var(--text-dim); max-width: 540px; line-height: 1.75; }
+.about-grid {
+  display: grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr));
+  gap: 1px; background: var(--border);
+}
+.about-cell {
+  padding: 30px; background: var(--bg); transition: background 0.2s;
+}
+.about-cell:hover { background: var(--surface); }
+.ac-icon { font-size: 26px; margin-bottom: 12px; }
+.ac-title { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+.ac-body { font-size: 13px; color: var(--text-muted); line-height: 1.7; }
+.tech-stack { padding: 36px 52px; border-bottom: 1px solid var(--border); }
+.ts-title { font-size: 14px; font-weight: 700; margin-bottom: 16px; }
+.ts-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px 0; border-bottom: 1px solid var(--border);
+}
+.ts-row:last-child { border-bottom: none; }
+.ts-badge {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  background: var(--surface3); border: 1px solid var(--border2);
+  color: var(--gold); padding: 4px 10px; border-radius: 12px; white-space: nowrap;
+}
+.ts-desc { font-size: 12px; color: var(--text-muted); }
+.about-foot {
+  padding: 40px 52px; text-align: center;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px; color: var(--text-muted);
+  border-top: 1px solid var(--border);
+}
+
+/* ══ TOAST ══ */
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: var(--surface2); border: 1px solid var(--border2);
+  border-radius: 8px; padding: 12px 18px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+  color: var(--text); z-index: 2000;
+  transform: translateY(60px); opacity: 0;
+  transition: all 0.3s; pointer-events: none;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.ok { border-left: 3px solid var(--green); }
+.toast.info { border-left: 3px solid var(--gold); }
+
+/* ══════════════ STEP DETAIL MODAL ══════════════ */
+.step-modal-overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,0.82);
+  z-index:4000; display:none; align-items:center; justify-content:center;
+  backdrop-filter:blur(6px);
+}
+.step-modal-overlay.open { display:flex; }
+.step-modal-box {
+  background:var(--surface); border:1px solid var(--border2);
+  border-radius:14px; padding:0; max-width:780px; width:95%;
+  max-height:88vh; overflow:hidden; position:relative;
+  display:flex; flex-direction:column;
+}
+.step-modal-header {
+  padding:20px 28px 16px;
+  border-bottom:1px solid var(--border);
+  display:flex; align-items:center; justify-content:space-between;
+  flex-shrink:0;
+  background: linear-gradient(135deg, #1a1500 0%, var(--surface) 60%);
+}
+.step-modal-title {
+  font-family:'Instrument Serif',serif; font-size:22px; letter-spacing:-0.5px;
+}
+.step-modal-close {
+  background:var(--surface2); border:1px solid var(--border);
+  color:var(--text-muted); border-radius:6px; padding:5px 12px;
+  cursor:pointer; font-family:'IBM Plex Mono',monospace; font-size:11px;
+  transition: all 0.15s;
+}
+.step-modal-close:hover { color:var(--text); border-color:var(--border2); }
+.step-modal-body {
+  flex:1; overflow-y:auto; padding:24px 28px;
+}
+.step-modal-body::-webkit-scrollbar { width:4px; }
+.step-modal-body::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+.smd-section {
+  margin-bottom:22px;
+}
+.smd-label {
+  font-family:'IBM Plex Mono',monospace; font-size:9px;
+  color:var(--gold); letter-spacing:2px; text-transform:uppercase;
+  margin-bottom:10px; opacity:0.8;
+}
+.smd-grid {
+  display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px;
+}
+.smd-card {
+  background:var(--surface2); border:1px solid var(--border);
+  border-radius:8px; padding:14px 16px;
+}
+.smd-card-label {
+  font-family:'IBM Plex Mono',monospace; font-size:9px;
+  color:var(--text-muted); text-transform:uppercase; letter-spacing:1px;
+  margin-bottom:4px;
+}
+.smd-card-val {
+  font-family:'IBM Plex Mono',monospace; font-size:20px;
+  font-weight:700; margin-bottom:4px;
+}
+.smd-card-desc { font-size:11px; color:var(--text-muted); line-height:1.6; }
+.smd-bar-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.smd-bar-label { font-family:'IBM Plex Mono',monospace; font-size:10px; width:80px; flex-shrink:0; }
+.smd-bar-wrap { flex:1; height:12px; background:var(--surface3); border-radius:6px; overflow:hidden; }
+.smd-bar-fill { height:100%; border-radius:6px; transition:width 0.5s ease; }
+.smd-bar-val { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-dim); width:44px; text-align:right; }
+.smd-formula {
+  background:var(--surface3); border:1px solid var(--border2);
+  border-radius:8px; padding:14px 18px;
+  font-family:'IBM Plex Mono',monospace; font-size:12px;
+  color:var(--gold); line-height:2.0; margin-bottom:14px;
+}
+.smd-interp {
+  background:var(--surface2); border-left:3px solid var(--gold);
+  border-radius:0 8px 8px 0; padding:12px 16px;
+  font-size:12px; color:var(--text-dim); line-height:1.75;
+}
+.smd-interp.ok { border-left-color:var(--green); }
+.smd-interp.warn { border-left-color:var(--rose); }
+.smd-nav { display:flex; gap:10px; justify-content:space-between; align-items:center; padding:16px 28px; border-top:1px solid var(--border); flex-shrink:0; }
+.smd-nav-btn {
+  font-family:'IBM Plex Mono',monospace; font-size:11px;
+  padding:8px 18px; border-radius:6px; border:1px solid var(--border2);
+  background:var(--surface2); color:var(--text); cursor:pointer; transition:all 0.18s;
+}
+.smd-nav-btn:hover { border-color:var(--gold); color:var(--gold); }
+.smd-nav-btn:disabled { opacity:0.3; cursor:not-allowed; }
+.smd-step-counter { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-muted); }
+
+/* ══════════════ VIDEO PAGE ══════════════ */
+#page-video { background: var(--bg); overflow: hidden; }
+.video-scroll { flex:1; overflow-y:auto; padding: 40px 52px 60px; }
+.video-scroll::-webkit-scrollbar { width:4px; }
+.video-scroll::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+.video-h1 { font-family:'Instrument Serif',serif; font-size:34px; letter-spacing:-0.8px; margin-bottom:8px; }
+.video-sub { font-size:14px; color:var(--text-muted); margin-bottom:32px; line-height:1.7; }
+.video-grid { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-bottom:40px; }
+.video-card {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:12px; overflow:hidden; transition: border-color 0.2s, transform 0.2s;
+}
+.video-card:hover { border-color:var(--border2); transform:translateY(-3px); }
+.video-embed { position:relative; padding-bottom:56.25%; height:0; background:#000; }
+.video-embed iframe { position:absolute; inset:0; width:100%; height:100%; border:none; }
+.video-info { padding:16px 20px; }
+.video-title { font-size:14px; font-weight:700; margin-bottom:6px; }
+.video-desc { font-size:12px; color:var(--text-muted); line-height:1.65; }
+.video-tag { font-family:'IBM Plex Mono',monospace; font-size:9px; color:var(--gold); 
+  background:var(--surface3); border:1px solid var(--border2); padding:2px 8px; 
+  border-radius:10px; display:inline-block; margin-bottom:8px; }
+
+/* ══════════════ REFERENCES PAGE ══════════════ */
+#page-refs { background: var(--bg); overflow: hidden; }
+.refs-scroll { flex:1; overflow-y:auto; padding:40px 52px 60px; max-width:900px; }
+.refs-scroll::-webkit-scrollbar { width:4px; }
+.refs-scroll::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+.refs-h1 { font-family:'Instrument Serif',serif; font-size:34px; letter-spacing:-0.8px; margin-bottom:8px; }
+.refs-sub { font-size:14px; color:var(--text-muted); margin-bottom:32px; line-height:1.7; }
+.ref-group { margin-bottom:36px; }
+.ref-group-title { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--gold); 
+  letter-spacing:2px; text-transform:uppercase; margin-bottom:14px; opacity:0.8; }
+.ref-item {
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:10px; padding:18px 22px; margin-bottom:10px;
+  display:flex; gap:16px; align-items:flex-start; transition: border-color 0.2s;
+}
+.ref-item:hover { border-color:var(--border2); }
+.ref-num {
+  font-family:'IBM Plex Mono',monospace; font-size:12px; font-weight:600;
+  color:var(--gold); background:var(--surface3); border:1px solid var(--border2);
+  padding:2px 8px; border-radius:5px; flex-shrink:0; margin-top:2px;
+}
+.ref-body { flex:1; }
+.ref-title { font-size:14px; font-weight:600; margin-bottom:4px; }
+.ref-authors { font-size:12px; color:var(--text-muted); margin-bottom:6px; font-style:italic; }
+.ref-meta { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--text-muted); margin-bottom:8px; }
+.ref-link {
+  font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--teal);
+  text-decoration:none; border-bottom:1px solid var(--teal); padding-bottom:1px;
+  transition: color 0.2s;
+}
+.ref-link:hover { color:var(--gold); border-bottom-color:var(--gold); }
+
+/* ══════════════ HELP MODAL ══════════════ */
+.modal-overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,0.75);
+  z-index:3000; display:none; align-items:center; justify-content:center;
+  backdrop-filter:blur(4px);
+}
+.modal-overlay.open { display:flex; }
+.modal-box {
+  background:var(--surface); border:1px solid var(--border2);
+  border-radius:14px; padding:36px; max-width:640px; width:90%;
+  max-height:80vh; overflow-y:auto; position:relative;
+}
+.modal-close {
+  position:absolute; top:16px; right:16px;
+  background:var(--surface2); border:1px solid var(--border);
+  color:var(--text-muted); border-radius:6px; padding:4px 10px;
+  cursor:pointer; font-family:'IBM Plex Mono',monospace; font-size:11px;
+  transition: all 0.15s;
+}
+.modal-close:hover { color:var(--text); border-color:var(--border2); }
+.modal-h1 { font-family:'Instrument Serif',serif; font-size:28px; margin-bottom:8px; }
+.modal-sub { font-size:13px; color:var(--text-muted); margin-bottom:24px; line-height:1.7; }
+.help-section { margin-bottom:20px; }
+.help-section-title { font-size:13px; font-weight:700; color:var(--gold); margin-bottom:10px; 
+  font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:1px; text-transform:uppercase; }
+.help-row { display:flex; gap:12px; padding:8px 0; border-bottom:1px solid var(--border); font-size:13px; }
+.help-row:last-child { border-bottom:none; }
+.help-key { font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--gold); 
+  background:var(--surface3); border:1px solid var(--border2); padding:2px 8px; 
+  border-radius:4px; flex-shrink:0; white-space:nowrap; }
+.help-val { color:var(--text-dim); line-height:1.6; font-size:12px; }
+
+/* ══════════════ VIRTUAL LAB BANNER ══════════════ */
+.vlab-banner {
+  background: linear-gradient(135deg, #1a1500 0%, #0d1a0d 100%);
+  border:1px solid var(--border2); border-radius:12px; padding:24px 28px;
+  display:flex; align-items:center; gap:20px; margin:32px 0;
+  text-decoration:none; transition: border-color 0.2s, transform 0.2s;
+}
+.vlab-banner:hover { border-color:var(--gold); transform:translateY(-2px); }
+.vlab-icon { font-size:36px; flex-shrink:0; }
+.vlab-body {}
+.vlab-title { font-size:15px; font-weight:700; color:var(--text); margin-bottom:4px; }
+.vlab-desc { font-size:13px; color:var(--text-muted); line-height:1.65; }
+.vlab-arrow { margin-left:auto; color:var(--gold); font-size:20px; flex-shrink:0; }
+
+/* ══════════════ WORKED EXAMPLE in LEARN ══════════════ */
+.example-box {
+  background:var(--surface2); border:1px solid var(--border2);
+  border-radius:10px; padding:20px 24px; margin:20px 0;
+}
+.example-title { font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--amber); 
+  letter-spacing:2px; text-transform:uppercase; margin-bottom:14px; }
+.example-step { display:flex; gap:14px; margin-bottom:14px; align-items:flex-start; }
+.example-step:last-child { margin-bottom:0; }
+.ex-badge {
+  font-family:'IBM Plex Mono',monospace; font-size:10px; font-weight:600;
+  color:#0c0a08; background:var(--amber); padding:3px 8px; border-radius:4px;
+  flex-shrink:0; margin-top:2px;
+}
+.ex-body { font-size:13px; color:var(--text-dim); line-height:1.75; }
+.ex-body code { font-family:'IBM Plex Mono',monospace; color:var(--gold); background:var(--surface3); padding:1px 6px; border-radius:3px; font-size:11px; }
+</style>
+</head>
+<body>
+
+<!-- ═══ NAV ═══ -->
+<nav>
+  <div class="nav-logo">
+    LSTM<span class="hi">Vis</span>
+    <span class="ver">v1.0</span>
+  </div>
+  <div class="nav-links">
+    <button class="nav-btn active" onclick="goPage('home',this)">⌂ Home</button>
+    <button class="nav-btn" onclick="goPage('learn',this)">📖 Learn</button>
+    <button class="nav-btn" onclick="goPage('sim',this)">⚡ Simulate</button>
+    <button class="nav-btn" onclick="goPage('video',this)">▶ Video</button>
+    <button class="nav-btn" onclick="goPage('download',this)">⬇ Export</button>
+    <button class="nav-btn" onclick="goPage('refs',this)">📚 References</button>
+    <button class="nav-btn" onclick="goPage('about',this)">✦ Developed By</button>
+    <button class="nav-btn" onclick="showHelp()">❓ Help</button>
+  </div>
+  <div class="nav-pulse"></div>
+</nav>
+<div class="prog-strip"><div class="prog-bar" id="progBar"></div></div>
+
+<!-- ═══════════════════ HOME ═══════════════════ -->
+<div class="page active" id="page-home">
+  <div class="home-grid"></div>
+  <div class="home-orbits" id="homeOrbits"></div>
+  <div class="home-body">
+    <div class="home-eyebrow">// deep learning · sequence modelling</div>
+    <h1 class="home-title">
+      Long Short-<br><em>Term Memory</em><span class="sm">LSTM</span>
+    </h1>
+    <p class="home-sub">
+      Explore how LSTMs remember, forget, and predict sequences — 
+      with interactive gate visualizations, step-by-step animations, 
+      and exportable session reports.
+    </p>
+    <div class="home-cta">
+      <button class="btn-gold" onclick="goPage('sim',document.querySelectorAll('.nav-btn')[2])">▶ Start Simulation</button>
+      <button class="btn-outline" onclick="goPage('learn',document.querySelectorAll('.nav-btn')[1])">Read the Theory →</button>
+    </div>
+    <div class="home-cards">
+      <div class="hcard" onclick="goPage('learn',document.querySelectorAll('.nav-btn')[1])">
+        <div class="hcard-icon">🧠</div>
+        <div class="hcard-title">Learn LSTM</div>
+        <div class="hcard-desc">Gates, cell state, backprop through time — all explained visually.</div>
+      </div>
+      <div class="hcard" onclick="goPage('sim',document.querySelectorAll('.nav-btn')[2])">
+        <div class="hcard-icon">⚙️</div>
+        <div class="hcard-title">Gate Simulator</div>
+        <div class="hcard-desc">Feed sequences, watch gate values and cell state evolve in real time.</div>
+      </div>
+      <div class="hcard" onclick="goPage('download',document.querySelectorAll('.nav-btn')[4])">
+        <div class="hcard-icon">📊</div>
+        <div class="hcard-title">Export Report</div>
+        <div class="hcard-desc">Download step-by-step gate activations and state values as TXT or CSV.</div>
+      </div>
+      <div class="hcard" onclick="goPage('about',document.querySelectorAll('.nav-btn')[6])">
+        <div class="hcard-icon">✦</div>
+        <div class="hcard-title">About</div>
+        <div class="hcard-desc">Tech stack, features, and the story behind this tool.</div>
+      </div>
+    </div>
+  </div>
+  <div class="home-ticker">
+    <div class="home-ticker-inner" id="homeTicker"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════ LEARN ═══════════════════ -->
+<div class="page" id="page-learn">
+  <div class="learn-wrap">
+    <div class="learn-toc">
+      <div class="toc-group">
+        <div class="toc-group-title">Foundations</div>
+        <div class="toc-link active" onclick="tocGo('intro',this)">What is an LSTM?</div>
+        <div class="toc-link" onclick="tocGo('vanishing',this)">The Vanishing Gradient</div>
+        <div class="toc-link" onclick="tocGo('cellstate',this)">Cell State</div>
+      </div>
+      <div class="toc-group">
+        <div class="toc-group-title">The Gates</div>
+        <div class="toc-link" onclick="tocGo('forgetgate',this)">Forget Gate</div>
+        <div class="toc-link" onclick="tocGo('inputgate',this)">Input Gate</div>
+        <div class="toc-link" onclick="tocGo('outputgate',this)">Output Gate</div>
+      </div>
+      <div class="toc-group">
+        <div class="toc-group-title">Advanced</div>
+        <div class="toc-link" onclick="tocGo('bptt',this)">Backprop Through Time</div>
+        <div class="toc-link" onclick="tocGo('variants',this)">Variants (GRU, Bi-LSTM)</div>
+        <div class="toc-link" onclick="tocGo('complexity',this)">Complexity & Limits</div>
+        <div class="toc-link" onclick="tocGo('usecases',this)">Use Cases</div>
+        <div class="toc-link" onclick="tocGo('vstransformer',this)">vs Transformers</div>
+      </div>
+    </div>
+    <div class="learn-body">
+      <div class="learn-scroll" id="learnScroll">
+
+        <div class="lsec" id="sec-intro">
+          <div class="ltag">// INTRODUCTION</div>
+          <h1 class="lh1">What is an LSTM?</h1>
+          <p class="lp">
+            A <strong>Long Short-Term Memory</strong> network is a special kind of Recurrent Neural Network (RNN) 
+            designed to learn long-range dependencies in sequential data. Proposed by Hochreiter &amp; Schmidhuber in 1997, 
+            LSTMs solved a fundamental problem that plagued vanilla RNNs: the inability to remember information 
+            over many time steps.
+          </p>
+          <p class="lp">
+            Unlike a standard feedforward network, an LSTM processes data one step at a time — maintaining a 
+            <em>hidden state</em> (short-term memory) and a <em>cell state</em> (long-term memory) that flow 
+            from one timestep to the next, updated by a system of learnable gates.
+          </p>
+          <div class="callout">
+            <strong>Key intuition:</strong> Think of the cell state as a conveyor belt running through the network. 
+            Information can be added or removed from it via the forget, input, and output gates — each of which learns 
+            when to open or close based on the current input and previous hidden state.
+          </div>
+        </div>
+
+        <div class="lsec" id="sec-vanishing">
+          <div class="ltag">// MOTIVATION</div>
+          <h2 class="lh2"><span class="num">01</span> The Vanishing Gradient Problem</h2>
+          <p class="lp">
+            Standard RNNs struggle to learn from sequences longer than ~10 steps because gradients 
+            <em>vanish</em> (shrink toward zero) or <em>explode</em> (grow unboundedly) as they're 
+            backpropagated through time. This makes it impossible for the network to learn that a word 
+            at position 1 matters for a prediction at position 100.
+          </p>
+          <p class="lp">
+            The root cause: at each time step the gradient is multiplied by the same weight matrix. 
+            If the largest eigenvalue of that matrix is &lt;1, gradients vanish; if &gt;1, they explode.
+          </p>
+          <div class="callout warn">
+            <strong>Example:</strong> Consider "The cat, which sat on the warm mat by the window all afternoon in the sun, <em>was</em> …" 
+            A vanilla RNN loses the subject "cat" by the time it predicts the verb. An LSTM retains it.
+          </div>
+          <p class="lp">
+            LSTMs address this with an <strong>additive update</strong> to the cell state rather than a multiplicative one. 
+            Gradients can flow back through time without vanishing, as long as the forget gate stays open.
+          </p>
+        </div>
+
+        <div class="lsec" id="sec-cellstate">
+          <div class="ltag">// ARCHITECTURE</div>
+          <h2 class="lh2"><span class="num">02</span> The Cell State</h2>
+          <p class="lp">
+            The cell state C<sub>t</sub> is the long-term memory of the LSTM. It runs as a horizontal 
+            "highway" through every time step, modified only by small, targeted operations — not by 
+            a full matrix multiplication each step. This is what allows gradients to flow and information 
+            to persist.
+          </p>
+          <div class="formula">
+            <span class="cm">// Cell state update (the core equation)</span><br>
+            C<sub>t</sub> <span class="op">=</span> f<sub>t</sub> <span class="op">⊙</span> C<sub>t-1</sub> <span class="op">+</span> i<sub>t</sub> <span class="op">⊙</span> <span class="fn">tanh</span>(W<sub>C</sub> · [h<sub>t-1</sub>, x<sub>t</sub>] + b<sub>C</sub>)<br>
+            <span class="cm">// ⊙ = element-wise multiplication</span><br>
+            <span class="cm">// f = forget gate, i = input gate</span>
+          </div>
+          <p class="lp">
+            The first term <code>f<sub>t</sub> ⊙ C<sub>t-1</sub></code> selectively erases old memory. 
+            The second term <code>i<sub>t</sub> ⊙ C̃<sub>t</sub></code> writes new candidate content. 
+            Their sum is the updated cell state carried forward.
+          </p>
+        </div>
+
+
+        <div class="lsec" id="sec-example">
+          <div class="ltag">// WORKED EXAMPLE</div>
+          <h2 class="lh2"><span class="num">★</span> Step-by-Step: Processing "CAT"</h2>
+          <p class="lp">
+            Let's trace an LSTM processing the word <strong>"CAT"</strong> character by character with a hidden size of 2. 
+            We use simplified weights to illustrate the math clearly.
+          </p>
+          <div class="example-box">
+            <div class="example-title">// Setup: Input = "C", "A", "T" | Hidden size = 2</div>
+            <div class="example-step">
+              <div class="ex-badge">INIT</div>
+              <div class="ex-body">
+                Initialize <code>h₀ = [0, 0]</code> (hidden state) and <code>C₀ = [0, 0]</code> (cell state). 
+                All weights are pre-trained small random values near zero. Forget gate bias initialized to 1 (encourage memory).
+              </div>
+            </div>
+            <div class="example-step">
+              <div class="ex-badge">t=1: 'C'</div>
+              <div class="ex-body">
+                Concatenate input + hidden: <code>[x_C, h₀] = [1,0,0, 0,0]</code> (one-hot 'C' + zero hidden).<br>
+                Forget gate: <code>fₜ = σ(Wf·[x,h] + bf) ≈ [0.73, 0.69]</code> — retains ~70% of nothing (irrelevant at t=1).<br>
+                Input gate: <code>iₜ = σ(Wi·[x,h] + bi) ≈ [0.52, 0.48]</code> — about half the candidate accepted.<br>
+                Candidate: <code>C̃ₜ = tanh(Wc·[x,h] + bc) ≈ [0.31, -0.12]</code> — new content from 'C'.<br>
+                Cell update: <code>C₁ = f⊙C₀ + i⊙C̃ ≈ [0.16, -0.06]</code> — small first memory imprint.<br>
+                Output: <code>hₜ = oₜ⊙tanh(C₁) ≈ [0.08, -0.03]</code> — initial hidden state after 'C'.
+              </div>
+            </div>
+            <div class="example-step">
+              <div class="ex-badge">t=2: 'A'</div>
+              <div class="ex-body">
+                Concatenate: <code>[x_A, h₁]</code> — 'A' one-hot plus prior hidden state <code>[0.08, -0.03]</code>.<br>
+                The forget gate now sees context from 'C'. It might partially erase the 'C' imprint if 'A' is dissimilar.<br>
+                Input gate writes new 'A' information into the cell state, blended with what 'C' left.<br>
+                Result: <code>C₂</code> is a mixture of 'C' memory and 'A' content. Hidden <code>h₂</code> reflects both characters.
+              </div>
+            </div>
+            <div class="example-step">
+              <div class="ex-badge">t=3: 'T'</div>
+              <div class="ex-body">
+                At the final step, the LSTM processes 'T' with full context of "CA" in <code>h₂, C₂</code>.<br>
+                The output gate filters the combined cell state to produce <code>h₃</code>, which encodes the full sequence "CAT".<br>
+                This final hidden state <code>h₃</code> would be used for prediction — e.g., the next character or a classification label.
+              </div>
+            </div>
+          </div>
+          <div class="callout ok">
+            <strong>Key takeaway:</strong> At every step, the gates decide what to keep, what to write, and what to output. 
+            After 3 steps, the LSTM's hidden state <em>summarizes the entire sequence</em> "CAT" in a fixed-size vector — 
+            regardless of how long the original sequence was.
+          </div>
+        </div>
+
+        <div class="lsec" id="sec-forgetgate">
+          <div class="ltag">// GATES</div>
+          <h2 class="lh2"><span class="num">03</span> The Forget Gate</h2>
+          <p class="lp">
+            The forget gate decides what fraction of the previous cell state to keep. 
+            It outputs a vector of values between 0 and 1 — 0 meaning "erase completely", 
+            1 meaning "keep entirely".
+          </p>
+          <div class="formula">
+            f<sub>t</sub> <span class="op">=</span> <span class="fn">σ</span>(W<sub>f</sub> · [h<sub>t-1</sub>, x<sub>t</sub>] + b<sub>f</sub>)<br>
+            <span class="cm">// σ = sigmoid → output in (0,1)</span>
+          </div>
+          <div class="callout">
+            <strong>Example:</strong> In language modelling, the forget gate might reset gender information 
+            about a subject ("she") when a new subject appears, so the network doesn't erroneously 
+            apply feminine pronouns later.
+          </div>
+        </div>
+
+        <div class="lsec" id="sec-inputgate">
+          <div class="ltag">// GATES</div>
+          <h2 class="lh2"><span class="num">04</span> The Input Gate</h2>
+          <p class="lp">
+            The input gate has two parts working together: a sigmoid layer deciding <em>which values</em> 
+            to update, and a tanh layer creating a vector of <em>candidate values</em> to potentially add.
+          </p>
+          <div class="formula">
+            i<sub>t</sub> <span class="op">=</span> <span class="fn">σ</span>(W<sub>i</sub> · [h<sub>t-1</sub>, x<sub>t</sub>] + b<sub>i</sub>)   <span class="cm">// how much to update</span><br>
+            C̃<sub>t</sub> <span class="op">=</span> <span class="fn">tanh</span>(W<sub>C</sub> · [h<sub>t-1</sub>, x<sub>t</sub>] + b<sub>C</sub>)   <span class="cm">// candidate values</span>
+          </div>
+          <p class="lp">
+            The result i<sub>t</sub> ⊙ C̃<sub>t</sub> is added to the cell state — writing 
+            new information into long-term memory.
+          </p>
+        </div>
+
+        <div class="lsec" id="sec-outputgate">
+          <div class="ltag">// GATES</div>
+          <h2 class="lh2"><span class="num">05</span> The Output Gate</h2>
+          <p class="lp">
+            The output gate determines what the next hidden state h<sub>t</sub> will be — 
+            i.e., what the LSTM exposes to the next layer or produces as output. It reads from 
+            the updated cell state and filters it.
+          </p>
+          <div class="formula">
+            o<sub>t</sub> <span class="op">=</span> <span class="fn">σ</span>(W<sub>o</sub> · [h<sub>t-1</sub>, x<sub>t</sub>] + b<sub>o</sub>)<br>
+            h<sub>t</sub> <span class="op">=</span> o<sub>t</sub> <span class="op">⊙</span> <span class="fn">tanh</span>(C<sub>t</sub>)
+          </div>
+          <div class="gate-cards">
+            <div class="gate-card"><div class="gc-head"><div class="gc-pip" style="background:var(--forget)"></div><div><div class="gc-name">Forget Gate</div><div class="gc-alias">σ(Wf·[h,x]+bf)</div></div></div><div class="gc-body">Erases irrelevant past memory. Controls how much of C<sub>t-1</sub> survives.</div></div>
+            <div class="gate-card"><div class="gc-head"><div class="gc-pip" style="background:var(--input)"></div><div><div class="gc-name">Input Gate</div><div class="gc-alias">σ(Wi·[h,x]+bi)</div></div></div><div class="gc-body">Decides which new information is written into the cell state.</div></div>
+            <div class="gate-card"><div class="gc-head"><div class="gc-pip" style="background:var(--update)"></div><div><div class="gc-name">Candidate Gate</div><div class="gc-alias">tanh(WC·[h,x]+bC)</div></div></div><div class="gc-body">Creates new candidate values that could be added to the cell state.</div></div>
+            <div class="gate-card"><div class="gc-head"><div class="gc-pip" style="background:var(--output)"></div><div><div class="gc-name">Output Gate</div><div class="gc-alias">σ(Wo·[h,x]+bo)</div></div></div><div class="gc-body">Filters the cell state to produce the hidden state output h<sub>t</sub>.</div></div>
+          </div>
+        </div>
+
+
+        <div class="lsec" id="sec-purpose">
+          <div class="ltag">// PURPOSE &amp; APPLICATIONS</div>
+          <h2 class="lh2"><span class="num">✦</span> Purpose &amp; Where LSTMs Are Used</h2>
+          <p class="lp">
+            LSTMs were designed to solve a single critical problem: <strong>learning dependencies across long time spans</strong>. 
+            Their purpose is to be a trainable, differentiable memory unit that selectively reads, writes, and erases information 
+            based on what the network learns is important.
+          </p>
+          <div class="gate-cards">
+            <div class="gate-card">
+              <div class="gc-head"><div class="gc-pip" style="background:var(--gold)"></div><div><div class="gc-name">Natural Language Processing</div></div></div>
+              <div class="gc-body">Sentiment analysis, machine translation, named entity recognition, text generation. LSTMs powered Google Translate before Transformers.</div>
+            </div>
+            <div class="gate-card">
+              <div class="gc-head"><div class="gc-pip" style="background:var(--teal)"></div><div><div class="gc-name">Speech &amp; Audio</div></div></div>
+              <div class="gc-body">Speech-to-text, speaker identification, music generation. Apple Siri used LSTM-based models extensively in 2015–2019.</div>
+            </div>
+            <div class="gate-card">
+              <div class="gc-head"><div class="gc-pip" style="background:var(--amber)"></div><div><div class="gc-name">Time Series Forecasting</div></div></div>
+              <div class="gc-body">Stock price prediction, energy load forecasting, weather modelling, IoT sensor anomaly detection in manufacturing.</div>
+            </div>
+            <div class="gate-card">
+              <div class="gc-head"><div class="gc-pip" style="background:var(--rose)"></div><div><div class="gc-name">Robotics &amp; Control</div></div></div>
+              <div class="gc-body">Autonomous driving (sequence of sensor readings), robotic arm control, reinforcement learning agents with temporal dependencies.</div>
+            </div>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>Parameter</th><th>Typical Value</th><th>Effect</th></tr></thead>
+            <tbody>
+              <tr><td>Hidden size (H)</td><td>64 – 512</td><td>Larger = more capacity, higher compute. Too large → overfitting.</td></tr>
+              <tr><td>Sequence length (T)</td><td>50 – 500</td><td>Longer sequences = richer context, slower training, gradient risk.</td></tr>
+              <tr><td>Number of layers</td><td>1 – 4</td><td>Stacking layers adds representational depth (Stacked LSTM).</td></tr>
+              <tr><td>Dropout</td><td>0.2 – 0.5</td><td>Applied between LSTM layers to reduce overfitting on recurrent connections.</td></tr>
+              <tr><td>Learning rate</td><td>1e-3 – 1e-4</td><td>Adam optimizer with lr decay is standard. Too high → divergence.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="lsec" id="sec-bptt">
+          <div class="ltag">// TRAINING</div>
+          <h2 class="lh2"><span class="num">06</span> Backpropagation Through Time</h2>
+          <p class="lp">
+            LSTMs are trained with <strong>Backpropagation Through Time (BPTT)</strong> — a generalisation 
+            of standard backprop where gradients are unrolled through the timestep dimension. The loss at 
+            each time step contributes gradients that flow back through all previous steps.
+          </p>
+          <div class="step-flow">
+            <div class="sf-item"><div class="sf-num">1</div><div class="sf-body"><strong>Forward pass:</strong> Run the LSTM over the full input sequence. Record all gate activations and states.</div></div>
+            <div class="sf-item"><div class="sf-num">2</div><div class="sf-body"><strong>Compute loss:</strong> Compare output at each step (or the final step) to ground truth using cross-entropy, MSE, etc.</div></div>
+            <div class="sf-item"><div class="sf-num">3</div><div class="sf-body"><strong>Backward pass:</strong> Unroll the computation graph. Gradients flow backwards through gates and cell states.</div></div>
+            <div class="sf-item"><div class="sf-num">4</div><div class="sf-body"><strong>Truncated BPTT:</strong> For long sequences, gradients are often truncated after k steps to save memory and computation.</div></div>
+            <div class="sf-item"><div class="sf-num">5</div><div class="sf-body"><strong>Update weights:</strong> Apply Adam, SGD, or RMSProp using accumulated gradients from all time steps.</div></div>
+          </div>
+        </div>
+
+        <div class="lsec" id="sec-variants">
+          <div class="ltag">// VARIANTS</div>
+          <h2 class="lh2"><span class="num">07</span> Variants: GRU & Bi-LSTM</h2>
+          <table class="data-table">
+            <thead><tr><th>Variant</th><th>Key Idea</th><th>Gates</th><th>When to use</th></tr></thead>
+            <tbody>
+              <tr><td>Vanilla LSTM</td><td>Standard 4-gate architecture</td><td>Forget, Input, Output, Candidate</td><td>Default choice for sequences</td></tr>
+              <tr><td>GRU</td><td>Simplified LSTM with 2 gates</td><td>Reset, Update</td><td>Faster, fewer params, comparable accuracy</td></tr>
+              <tr><td>Bi-LSTM</td><td>Two LSTMs, forward + backward</td><td>Same as LSTM ×2</td><td>When future context matters (NLP tasks)</td></tr>
+              <tr><td>Peephole LSTM</td><td>Gates also see cell state directly</td><td>LSTM + peephole connections</td><td>Precise timing tasks</td></tr>
+              <tr><td>Stacked LSTM</td><td>Multiple LSTM layers</td><td>LSTM × depth</td><td>Complex, high-capacity tasks</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="lsec" id="sec-complexity">
+          <div class="ltag">// PERFORMANCE</div>
+          <h2 class="lh2"><span class="num">08</span> Complexity & Limits</h2>
+          <table class="data-table">
+            <thead><tr><th>Property</th><th>Value</th></tr></thead>
+            <tbody>
+              <tr><td>Parameters (single cell)</td><td>4 × (hidden² + hidden×input + hidden) weights</td></tr>
+              <tr><td>Time complexity</td><td>O(T · H²) per sequence of length T, hidden size H</td></tr>
+              <tr><td>Space complexity</td><td>O(H²) for weights, O(T · H) for states</td></tr>
+              <tr><td>Parallelism</td><td>Limited — sequential by nature across time steps</td></tr>
+              <tr><td>Max practical sequence</td><td>~1000 steps before training becomes unstable</td></tr>
+            </tbody>
+          </table>
+          <div class="callout warn">
+            <strong>Practical limit:</strong> For very long sequences (&gt;1000 steps) or tasks requiring global context, 
+            Transformers now outperform LSTMs both in accuracy and training speed due to their parallel attention mechanism.
+          </div>
+        </div>
+
+        <div class="lsec" id="sec-usecases">
+          <div class="ltag">// APPLICATIONS</div>
+          <h2 class="lh2"><span class="num">09</span> Real-World Use Cases</h2>
+          <ul class="bullet-list">
+            <li>Natural language processing — sentiment analysis, machine translation, text generation</li>
+            <li>Speech recognition — converting audio sequences to text</li>
+            <li>Time series forecasting — stock prices, weather prediction, energy demand</li>
+            <li>Music generation — modelling temporal patterns in audio sequences</li>
+            <li>Anomaly detection — detecting unusual patterns in system logs or sensor streams</li>
+            <li>Handwriting recognition — sequential strokes modelled as time series</li>
+            <li>Video captioning — understanding frame sequences to generate text</li>
+            <li>Biological sequence analysis — protein structure prediction from amino acid sequences</li>
+          </ul>
+        </div>
+
+        <div class="lsec" id="sec-vstransformer">
+          <div class="ltag">// COMPARISON</div>
+          <h2 class="lh2"><span class="num">10</span> LSTM vs Transformers</h2>
+          <table class="data-table">
+            <thead><tr><th>Feature</th><th>LSTM</th><th>Transformer</th></tr></thead>
+            <tbody>
+              <tr><td>Parallelism</td><td style="color:var(--rose)">Sequential</td><td style="color:var(--green)">Fully parallel</td></tr>
+              <tr><td>Long-range deps</td><td>Good (gated)</td><td style="color:var(--green)">Excellent (attention)</td></tr>
+              <tr><td>Memory use</td><td style="color:var(--green)">O(T·H)</td><td style="color:var(--rose)">O(T²) for attention</td></tr>
+              <tr><td>Small data</td><td style="color:var(--green)">Often better</td><td>Needs more data</td></tr>
+              <tr><td>Interpretability</td><td>Gate activations</td><td>Attention weights</td></tr>
+              <tr><td>Streaming / online</td><td style="color:var(--green)">Natural fit</td><td style="color:var(--rose)">Awkward</td></tr>
+              <tr><td>State of the art (NLP)</td><td style="color:var(--rose)">Surpassed (2017+)</td><td style="color:var(--green)">Dominant</td></tr>
+            </tbody>
+          </table>
+          <div class="callout ok">
+            <strong>Bottom line:</strong> LSTMs remain excellent for streaming data, resource-constrained environments, 
+            and problems where sequence order is critical but datasets are small. Transformers win on large-scale NLP.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ SIMULATE ═══════════════════ -->
+<div class="page" id="page-sim">
+  <div class="sim-wrap">
+    <div class="sim-main">
+      <div class="sim-toolbar">
+        <span class="tl-label">Mode:</span>
+        <select class="tl-select" id="simMode" onchange="onModeChange(this.value)" style="min-width:140px">
+          <option value="preset">Preset / Custom</option>
+          <option value="dataset">Upload Dataset</option>
+        </select>
+        <!-- Preset controls -->
+        <span id="presetControls" style="display:flex;align-items:center;gap:10px">
+          <span class="tl-label">Input:</span>
+          <select class="tl-select" id="simPreset" onchange="loadPreset(this.value)" style="min-width:160px">
+            <option value="custom">Custom Sequence</option>
+            <option value="abcabc">Repeating: ABCABC</option>
+            <option value="numbers">Numbers: 1234567</option>
+            <option value="hello">Text: HELLO WORLD</option>
+            <option value="binary">Binary: 10110010</option>
+            <option value="music">Music: CDEGCDEG</option>
+          </select>
+          <input id="simInput" type="text" value="ABCABC" maxlength="40"
+            style="font-family:'IBM Plex Mono',monospace;font-size:11px;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);width:180px"
+            oninput="onInputChange(this.value)"/>
+        </span>
+        <!-- Dataset upload controls -->
+        <span id="datasetControls" style="display:none;align-items:center;gap:10px">
+          <label class="tl-btn" style="cursor:pointer;position:relative">
+            📂 Upload CSV / TXT
+            <input type="file" id="datasetFile" accept=".csv,.txt" onchange="onDatasetUpload(event)" style="position:absolute;inset:0;opacity:0;cursor:pointer"/>
+          </label>
+          <span class="tl-label" id="datasetName" style="color:var(--teal)">No file selected</span>
+          <button class="tl-btn" style="background:#4ade8022;border-color:var(--green);color:var(--green)" onclick="trainOnDataset()">🧠 Train & Simulate</button>
+        </span>
+        <div class="tl-sep"></div>
+        <span class="tl-label">Hidden size:</span>
+        <select class="tl-select" id="simHidden" onchange="resetSim()">
+          <option value="4">4</option>
+          <option value="8" selected>8</option>
+          <option value="16">16</option>
+        </select>
+        <div class="tl-sep"></div>
+        <button class="tl-btn run" id="simPlayBtn" onclick="simPlay()">▶ Play</button>
+        <button class="tl-btn" onclick="simStep_fn()">⏭ Step</button>
+        <button class="tl-btn" onclick="resetSim()">↺ Reset</button>
+        <button class="tl-btn danger" onclick="clearSim()">✕ Clear</button>
+        <!-- Trained weights indicator -->
+        <div id="trainedBadge" style="display:none;align-items:center;gap:6px">
+          <div class="tl-sep"></div>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;background:#4ade8022;border:1px solid var(--green);color:var(--green);padding:3px 8px;border-radius:10px">🧠 Trained weights active</span>
+          <button class="tl-btn danger" style="font-size:9px;padding:4px 8px" onclick="clearTraining()">✕ Clear training</button>
+        </div>
+        <div class="tl-sep"></div>
+        <span class="tl-label">Speed:</span>
+        <div class="tl-slider">
+          <input type="range" id="simSpeed" min="200" max="2000" value="800" style="width:80px"/>
+          <span class="tl-val" id="simSpeedVal">0.8s</span>
+        </div>
+      </div>
+
+      <!-- Training progress bar (hidden by default) -->
+      <div id="trainingBar" style="display:none;padding:8px 16px;background:var(--surface);border-bottom:1px solid var(--border);align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--gold)" id="trainLabel">🧠 Real BPTT Training...</span>
+        <div style="flex:1;min-width:120px;height:6px;background:var(--surface3);border-radius:3px;overflow:hidden">
+          <div id="trainProgressFill" style="height:100%;border-radius:3px;background:linear-gradient(90deg,var(--gold),var(--amber));width:0%;transition:width 0.3s"></div>
+        </div>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-muted)" id="trainPct">0%</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--teal)">Adam · gradient clip ±5 · BPTT</span>
+      </div>
+
+      <div class="sim-canvas-area">
+        <canvas id="lstmCanvas"></canvas>
+      </div>
+
+      <!-- Step-by-step explanation panel -->
+      <div id="stepExplain" style="background:var(--surface);border-top:1px solid var(--border);padding:10px 18px;min-height:64px;flex-shrink:0;overflow-y:auto;max-height:120px;display:flex;align-items:flex-start;gap:14px">
+        <div style="flex:1">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--gold);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">// STEP EXPLANATION</div>
+          <div id="stepExplainText" style="font-size:12px;color:var(--text-dim);line-height:1.7">
+            Press <strong style="color:var(--text)">▶ Play</strong> or <strong style="color:var(--text)">⏭ Step</strong> to begin the simulation. Each step will explain what the LSTM is doing at that timestep.
+          </div>
+        </div>
+        <button id="stepDetailBtn" onclick="openStepModal()" style="display:none;flex-shrink:0;font-family:'IBM Plex Mono',monospace;font-size:10px;padding:7px 14px;border-radius:6px;border:1px solid var(--gold);background:transparent;color:var(--gold);cursor:pointer;white-space:nowrap;margin-top:18px;transition:all 0.18s" onmouseover="this.style.background='var(--gold)';this.style.color='#0c0a08'" onmouseout="this.style.background='transparent';this.style.color='var(--gold)'">🔍 View Detailed Analysis</button>
+      </div>
+    </div>
+
+    <div class="sim-panel">
+      <!-- Metrics tab bar -->
+      <div style="display:flex;border-bottom:1px solid var(--border);flex-shrink:0">
+        <button id="tabGates" onclick="switchSimTab('gates')" style="flex:1;font-family:'IBM Plex Mono',monospace;font-size:9px;padding:8px 4px;border:none;cursor:pointer;background:var(--surface3);color:var(--gold);letter-spacing:1px;border-bottom:2px solid var(--gold)">GATES</button>
+        <button id="tabMetrics" onclick="switchSimTab('metrics')" style="flex:1;font-family:'IBM Plex Mono',monospace;font-size:9px;padding:8px 4px;border:none;cursor:pointer;background:transparent;color:var(--text-muted);letter-spacing:1px;border-bottom:2px solid transparent">METRICS</button>
+        <button id="tabLog" onclick="switchSimTab('log')" style="flex:1;font-family:'IBM Plex Mono',monospace;font-size:9px;padding:8px 4px;border:none;cursor:pointer;background:transparent;color:var(--text-muted);letter-spacing:1px;border-bottom:2px solid transparent">LOG</button>
+      </div>
+
+      <!-- GATES TAB -->
+      <div id="panelGates" style="display:flex;flex-direction:column;overflow:hidden;flex:1">
+        <div class="sp-section">
+          <div class="sp-title">Gate Activations</div>
+          <div class="gate-meter">
+            <div class="gm-row"><span class="gm-label" style="color:var(--forget)">Forget</span><div class="gm-bar-wrap"><div class="gm-bar" id="barForget" style="background:var(--forget);width:50%"></div></div><span class="gm-val" id="valForget">0.50</span></div>
+            <div class="gm-row"><span class="gm-label" style="color:var(--input)">Input</span><div class="gm-bar-wrap"><div class="gm-bar" id="barInput" style="background:var(--input);width:50%"></div></div><span class="gm-val" id="valInput">0.50</span></div>
+            <div class="gm-row"><span class="gm-label" style="color:var(--update)">Candidate</span><div class="gm-bar-wrap"><div class="gm-bar" id="barCandidate" style="background:var(--update);width:50%"></div></div><span class="gm-val" id="valCandidate">0.00</span></div>
+            <div class="gm-row"><span class="gm-label" style="color:var(--output)">Output</span><div class="gm-bar-wrap"><div class="gm-bar" id="barOutput" style="background:var(--output);width:50%"></div></div><span class="gm-val" id="valOutput">0.50</span></div>
+          </div>
+        </div>
+        <div class="sp-section">
+          <div class="sp-title">Cell & Hidden State</div>
+          <div class="state-table">
+            <div class="state-row"><span class="state-key">Cell state (avg)</span><span class="state-val" id="stCellAvg">0.000</span></div>
+            <div class="state-row"><span class="state-key">Hidden state (avg)</span><span class="state-val" id="stHidAvg">0.000</span></div>
+            <div class="state-row"><span class="state-key">Time step</span><span class="state-val" id="stStep">0 / 0</span></div>
+            <div class="state-row"><span class="state-key">Memory retained</span><span class="state-val" id="stMemory">—</span></div>
+          </div>
+        </div>
+        <div class="sp-section">
+          <div class="sp-title">Input Sequence</div>
+          <div class="seq-display" id="seqDisplay"></div>
+        </div>
+        <div class="sp-section">
+          <div class="sp-title">Next-Step Predictions</div>
+          <div class="pred-display" id="predDisplay"></div>
+        </div>
+      </div>
+
+      <!-- METRICS TAB -->
+      <div id="panelMetrics" style="display:none;flex:1;overflow-y:auto;padding:14px">
+        <div class="sp-title">Performance Metrics</div>
+        <div id="metricsContent">
+          <div style="font-size:11px;color:var(--text-muted);line-height:1.7;padding:12px 0">
+            Run a simulation to see performance metrics. Upload a dataset and train for full training metrics (loss curve, accuracy, etc.).
+          </div>
+        </div>
+      </div>
+
+      <!-- LOG TAB -->
+      <div id="panelLog" style="display:none;flex:1;overflow-y:auto;padding:14px">
+        <div class="sp-title">Step Log</div>
+        <div class="log-list" id="stepLog"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ DOWNLOAD ═══════════════════ -->
+<div class="page" id="page-download">
+  <div class="dl-wrap">
+    <div class="dl-main" id="dlMain">
+      <div class="dl-h1">Session Report &amp; Export</div>
+      <p class="dl-sub">Run a simulation, then preview and export your gate activations, states, and performance data. Follow the steps below to get the most from your export.</p>
+
+      <!-- Step-by-step export guide -->
+      <div style="background:var(--surface);border:1px solid var(--border2);border-radius:12px;padding:24px 28px;margin-bottom:28px">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--gold);letter-spacing:2px;text-transform:uppercase;margin-bottom:18px">// HOW TO EXPORT — STEP BY STEP</div>
+
+        <div style="display:flex;flex-direction:column;gap:0">
+
+          <div style="display:flex;gap:16px;align-items:flex-start;padding-bottom:18px;border-bottom:1px solid var(--border)">
+            <div style="min-width:32px;height:32px;background:var(--gold);color:#0c0a08;font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px">1</div>
+            <div>
+              <div style="font-size:14px;font-weight:700;margin-bottom:5px">Run a Simulation First</div>
+              <div style="font-size:12px;color:var(--text-muted);line-height:1.75">Navigate to the <strong style="color:var(--text)">⚡ Simulate</strong> tab. Either select a preset sequence (e.g. <code style="font-family:'IBM Plex Mono',monospace;color:var(--gold);background:var(--surface3);padding:1px 6px;border-radius:3px">HELLO WORLD</code>) or type your own custom input in the text box. Optionally upload a CSV/TXT dataset using the <strong style="color:var(--text)">Upload Dataset</strong> mode, then click <strong style="color:var(--text)">🧠 Train &amp; Simulate</strong>. Press <strong style="color:var(--text)">▶ Play</strong> or step through manually with <strong style="color:var(--text)">⏭ Step</strong> until the simulation completes all timesteps. The more steps you run, the richer your exported data will be.</div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:16px;align-items:flex-start;padding:18px 0;border-bottom:1px solid var(--border)">
+            <div style="min-width:32px;height:32px;background:var(--amber);color:#0c0a08;font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px">2</div>
+            <div>
+              <div style="font-size:14px;font-weight:700;margin-bottom:5px">Return to This Export Page</div>
+              <div style="font-size:12px;color:var(--text-muted);line-height:1.75">After running your simulation, click <strong style="color:var(--text)">⬇ Export</strong> in the navigation bar (or use the keyboard shortcut). The Session Report preview below will automatically populate with your simulation data — showing a table of every timestep with all four gate values, cell state averages, hidden state averages, and the memory retention label. If the preview shows "No simulation data yet", go back to Simulate and run at least one step.</div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:16px;align-items:flex-start;padding:18px 0;border-bottom:1px solid var(--border)">
+            <div style="min-width:32px;height:32px;background:var(--teal);color:#0c0a08;font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px">3</div>
+            <div>
+              <div style="font-size:14px;font-weight:700;margin-bottom:5px">Select What to Include</div>
+              <div style="font-size:12px;color:var(--text-muted);line-height:1.75">In the right-hand sidebar, use the checkboxes to customise your export content:
+                <ul style="margin-top:8px;display:flex;flex-direction:column;gap:5px;list-style:none">
+                  <li style="display:flex;gap:8px"><span style="color:var(--forget);font-size:10px;margin-top:3px">◆</span><span><strong style="color:var(--text)">Gate Activations</strong> — includes the forget (fₜ), input (iₜ), candidate (C̃ₜ), and output (oₜ) gate values for every timestep, each as a decimal between 0 and 1.</span></li>
+                  <li style="display:flex;gap:8px"><span style="color:var(--input);font-size:10px;margin-top:3px">◆</span><span><strong style="color:var(--text)">State Vectors</strong> — includes the average cell state (long-term memory magnitude) and average hidden state (short-term output) values per step.</span></li>
+                  <li style="display:flex;gap:8px"><span style="color:var(--update);font-size:10px;margin-top:3px">◆</span><span><strong style="color:var(--text)">Predictions</strong> — includes top-3 next-character probabilities derived from the hidden state's softmax distribution, useful for evaluating sequence learning quality.</span></li>
+                  <li style="display:flex;gap:8px"><span style="color:var(--output);font-size:10px;margin-top:3px">◆</span><span><strong style="color:var(--text)">Session Parameters</strong> — includes the input sequence string, selected hidden size, vocabulary list, total steps run, and the timestamp of the session.</span></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:16px;align-items:flex-start;padding:18px 0;border-bottom:1px solid var(--border)">
+            <div style="min-width:32px;height:32px;background:var(--update);color:#0c0a08;font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px">4</div>
+            <div>
+              <div style="font-size:14px;font-weight:700;margin-bottom:5px">Choose Your Export Format</div>
+              <div style="font-size:12px;color:var(--text-muted);line-height:1.75">
+                Two formats are available — choose based on your intended use:
+                <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
+                  <div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--gold);border-radius:0 6px 6px 0;padding:10px 14px">
+                    <strong style="color:var(--text);font-size:13px">⬇ Download .txt Report</strong>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.65">A human-readable plain-text document. Opens in any text editor (Notepad, VS Code, TextEdit). Contains a formatted header with session metadata, followed by per-step blocks showing gate values and state summaries. Ideal for <strong style="color:var(--text)">academic submission, presentations, and documentation</strong>. Filename: <code style="font-family:'IBM Plex Mono',monospace;color:var(--gold);background:var(--surface3);padding:1px 5px;border-radius:3px">lstm_report.txt</code></div>
+                  </div>
+                  <div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--teal);border-radius:0 6px 6px 0;padding:10px 14px">
+                    <strong style="color:var(--text);font-size:13px">⬇ Download .csv (per-step)</strong>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.65">A comma-separated values file with one row per timestep. Column headers: <code style="font-family:'IBM Plex Mono',monospace;color:var(--gold);background:var(--surface3);padding:1px 5px;border-radius:3px">Step, Char, Forget, Input, Candidate, Output, CellAvg, HiddenAvg, MemoryRetained</code>. Opens directly in <strong style="color:var(--text)">Excel, Google Sheets, or Python (pandas)</strong> for charting and further analysis. Filename: <code style="font-family:'IBM Plex Mono',monospace;color:var(--gold);background:var(--surface3);padding:1px 5px;border-radius:3px">lstm_steps.csv</code></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:16px;align-items:flex-start;padding:18px 0;border-bottom:1px solid var(--border)">
+            <div style="min-width:32px;height:32px;background:var(--green);color:#0c0a08;font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px">5</div>
+            <div>
+              <div style="font-size:14px;font-weight:700;margin-bottom:5px">Click Download &amp; Verify the File</div>
+              <div style="font-size:12px;color:var(--text-muted);line-height:1.75">Click the download button in the sidebar. Your browser will save the file to your default downloads folder automatically — no server upload involved, everything is generated locally in your browser. A green toast notification will confirm success. Open the file to verify all steps are present. The number of data rows in the CSV should match the sequence length shown in the simulation (e.g. "HELLO WORLD" = 11 rows). If the file appears empty, ensure you have run the simulation to completion before exporting.</div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:16px;align-items:flex-start;padding-top:18px">
+            <div style="min-width:32px;height:32px;background:var(--blue);color:#0c0a08;font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px">6</div>
+            <div>
+              <div style="font-size:14px;font-weight:700;margin-bottom:5px">Analyse &amp; Re-Export as Needed</div>
+              <div style="font-size:12px;color:var(--text-muted);line-height:1.75">Each simulation session overwrites the previous data. To compare multiple sessions, download after each run before starting a new one. You can re-run the Simulate tab with a different sequence (e.g. switch from <code style="font-family:'IBM Plex Mono',monospace;color:var(--gold);background:var(--surface3);padding:1px 5px;border-radius:3px">ABCABC</code> to <code style="font-family:'IBM Plex Mono',monospace;color:var(--gold);background:var(--surface3);padding:1px 5px;border-radius:3px">HELLO WORLD</code>), then export again. For the dataset training mode, the exported CSV will also include training-derived gate values shaped by the LSTM weights fitted on your uploaded data, producing richer, more varied activations than the random-weight preset mode.</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Report preview -->
+      <div id="dlContent">
+        <div class="no-data">
+          <div class="nd-icon">🔬</div>
+          <div class="nd-msg">No simulation data yet.</div>
+          <div class="nd-sub" style="margin-bottom:16px">Go to the Simulate page and step through a sequence first.</div>
+          <button class="btn-gold" onclick="goPage('sim',document.querySelectorAll('.nav-btn')[2])">Go to Simulate →</button>
+        </div>
+      </div>
+    </div>
+    <div class="dl-sidebar">
+      <div>
+        <div class="dl-section-title">Include in Report</div>
+        <div class="dl-check"><input type="checkbox" id="dlGates" checked/><div><label for="dlGates">Gate Activations</label><div class="sub">forget, input, candidate, output</div></div></div>
+        <div class="dl-check"><input type="checkbox" id="dlStates" checked/><div><label for="dlStates">State Vectors</label><div class="sub">cell state &amp; hidden state (avg)</div></div></div>
+        <div class="dl-check"><input type="checkbox" id="dlPreds" checked/><div><label for="dlPreds">Predictions</label><div class="sub">top-3 next-char probabilities</div></div></div>
+        <div class="dl-check"><input type="checkbox" id="dlParams"/><div><label for="dlParams">Session Parameters</label><div class="sub">sequence, hidden size, timestamp</div></div></div>
+      </div>
+      <div>
+        <div class="dl-section-title">Download As</div>
+        <button class="dl-btn-main" onclick="dlTxt()">⬇ Download .txt Report</button>
+        <button class="dl-btn-sec" onclick="dlCsv()">⬇ Download .csv (per-step)</button>
+      </div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-muted);line-height:1.75">
+        Reports reflect the most recent simulation. Each time you run a new sequence, data is overwritten. Download before switching sequences to preserve results.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ ABOUT ═══════════════════ -->
+<div class="page" id="page-about">
+  <div class="about-scroll">
+    <div class="about-hero">
+      <div class="about-eyebrow">// category 2 · machine learning · lstm</div>
+      <h1>LSTMVis — Developed By</h1>
+      <p>An interactive learning and visualization tool for Long Short-Term Memory networks — built as a <strong>Category 2: Machine Learning</strong> project for the Web-Based Visualization course.</p>
+      <div style="margin-top:28px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;gap:14px;align-items:flex-start">
+          <div style="background:var(--gold);color:#0c0a08;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;padding:3px 10px;border-radius:4px;flex-shrink:0;margin-top:2px">TEAM</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div>
+              <div style="font-size:15px;font-weight:700">Akshitha Muralidharan</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--gold);margin-top:2px">24BYB1012</div>
+              <div style="font-size:13px;color:var(--text-muted);margin-top:2px">B.Tech · Department of Computer Science &amp; Engineering</div>
+            </div>
+            <div style="height:1px;background:var(--border);width:260px"></div>
+            <div>
+              <div style="font-size:15px;font-weight:700">Shruthi K</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--gold);margin-top:2px">24BYB1078</div>
+              <div style="font-size:13px;color:var(--text-muted);margin-top:2px">B.Tech · Department of Computer Science &amp; Engineering</div>
+            </div>
+            <div style="height:1px;background:var(--border);width:260px"></div>
+            <div>
+              <div style="font-size:15px;font-weight:700">Gitanjali Girish</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--gold);margin-top:2px">24BYB1059</div>
+              <div style="font-size:13px;color:var(--text-muted);margin-top:2px">B.Tech · Department of Computer Science &amp; Engineering</div>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:14px;align-items:flex-start">
+          <div style="background:var(--update);color:#0c0a08;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;padding:3px 10px;border-radius:4px;flex-shrink:0;margin-top:2px">TOPIC</div>
+          <div><div style="font-size:15px;font-weight:700">Long Short-Term Memory (LSTM)</div><div style="font-size:13px;color:var(--text-muted);margin-top:3px">Category 2: Machine Learning · Web-Based Interactive Visualization</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="about-grid">
+      <div class="about-cell"><div class="ac-icon">🎯</div><div class="ac-title">Gate-Level Visibility</div><div class="ac-body">Watch forget, input, output, and candidate gate values update in real time as each token is processed. No black boxes.</div></div>
+      <div class="about-cell"><div class="ac-icon">🧮</div><div class="ac-title">Real Simulation</div><div class="ac-body">The LSTM is implemented mathematically from scratch with randomized weights — not faked with static animations.</div></div>
+      <div class="about-cell"><div class="ac-icon">📖</div><div class="ac-title">Deep Learn Module</div><div class="ac-body">10 sections covering everything from vanishing gradients to BPTT to GRU variants, with formulas and callouts.</div></div>
+      <div class="about-cell"><div class="ac-icon">📤</div><div class="ac-title">Export Sessions</div><div class="ac-body">Every simulation step is logged. Download gate values, cell states, and predictions as TXT or CSV for analysis.</div></div>
+    </div>
+    <div class="tech-stack">
+      <div class="ts-title">Tech Stack</div>
+      <div class="ts-row"><div class="ts-badge">Vanilla JS</div><div class="ts-desc">LSTM forward pass implemented from scratch — sigmoid, tanh, matrix ops in plain JS</div></div>
+      <div class="ts-row"><div class="ts-badge">HTML5 Canvas</div><div class="ts-desc">Cell architecture diagram drawn with 2D canvas, animated per step</div></div>
+      <div class="ts-row"><div class="ts-badge">CSS Variables</div><div class="ts-desc">Warm amber design system, fully token-driven for consistency</div></div>
+      <div class="ts-row"><div class="ts-badge">Instrument Serif</div><div class="ts-desc">Display serif paired with IBM Plex Mono for data and labels</div></div>
+      <div class="ts-row"><div class="ts-badge">Blob API</div><div class="ts-desc">Client-side .txt and .csv file generation for session export</div></div>
+    </div>
+    <div style="padding:36px 52px;border-bottom:1px solid var(--border)">
+      <div class="ts-title">Features</div>
+      <ul class="bullet-list" style="margin-top:12px">
+        <li>6 built-in input presets + fully custom text input</li>
+        <li>Configurable hidden size (4 / 8 / 16 units)</li>
+        <li>Adjustable playback speed from 0.2s to 2s per step</li>
+        <li>Real-time gate bar meters updating per timestep</li>
+        <li>Canvas LSTM cell diagram with animated data flow</li>
+        <li>Per-step log with gate values and state deltas</li>
+        <li>Next-character prediction bars based on hidden state</li>
+        <li>Export: TXT report + CSV per-step breakdown</li>
+        <li>10-section Learn module with formulas, tables, callouts</li>
+      </ul>
+    </div>
+    <div class="about-foot">
+      Built with ♥ as a Category 2 ML project &nbsp;·&nbsp; LSTMVis &nbsp;·&nbsp; LSTM Explorer
+  <div style="margin-top:14px">
+    <a href="https://spoken-iitr.vlabs.ac.in/" target="_blank" rel="noopener" style="color:var(--teal);font-family:'IBM Plex Mono',monospace;font-size:10px;text-decoration:none;border-bottom:1px solid var(--teal);padding-bottom:1px">🔬 Virtual Lab Reference — IIT Roorkee →</a>
+  </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════ VIDEO ═══════════════════ -->
+<div class="page" id="page-video">
+  <div class="video-scroll">
+    <div class="ltag">// VIDEO RESOURCES</div>
+    <div class="video-h1">Video Explanations</div>
+    <p class="video-sub">
+      Curated video resources to help you understand LSTM networks — from first principles through 
+      to advanced applications. Watch, then experiment in the Simulate tab.
+    </p>
+    <div style="max-width:720px">
+      <a href="https://youtu.be/YCzL96nL7j0?si=F6dsbm5_08BF1fLy" target="_blank" rel="noopener" style="text-decoration:none">
+        <div class="video-card" style="cursor:pointer">
+          <!-- Thumbnail with play button overlay -->
+          <div style="position:relative;padding-bottom:56.25%;height:0;background:#000;overflow:hidden">
+            <img src="https://img.youtube.com/vi/YCzL96nL7j0/maxresdefault.jpg" 
+              onerror="this.src='https://img.youtube.com/vi/YCzL96nL7j0/hqdefault.jpg'"
+              alt="LSTM Explained thumbnail"
+              style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0.85;transition:opacity 0.2s"/>
+            <!-- Play button -->
+            <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none">
+              <div style="width:72px;height:72px;background:rgba(240,165,0,0.92);border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 24px rgba(0,0,0,0.5);transition:transform 0.2s">
+                <div style="width:0;height:0;border-top:14px solid transparent;border-bottom:14px solid transparent;border-left:24px solid #0c0a08;margin-left:4px"></div>
+              </div>
+            </div>
+            <!-- Watch on YouTube badge -->
+            <div style="position:absolute;bottom:12px;right:12px;background:rgba(0,0,0,0.75);color:#fff;font-family:'IBM Plex Mono',monospace;font-size:10px;padding:4px 10px;border-radius:4px;display:flex;align-items:center;gap:6px">
+              <svg width="14" height="10" viewBox="0 0 14 10" fill="none"><path d="M13.7 1.56A1.76 1.76 0 0 0 12.46.3C11.37 0 7 0 7 0S2.63 0 1.54.3A1.76 1.76 0 0 0 .3 1.56C0 2.66 0 5 0 5s0 2.34.3 3.44A1.76 1.76 0 0 0 1.54 9.7C2.63 10 7 10 7 10s4.37 0 5.46-.3a1.76 1.76 0 0 0 1.24-1.26C14 7.34 14 5 14 5s0-2.34-.3-3.44z" fill="red"/><path d="M5.6 7.14 9.23 5 5.6 2.86v4.28z" fill="#fff"/></svg>
+              Watch on YouTube
+            </div>
+          </div>
+          <div class="video-info">
+            <div class="video-tag">CORE CONCEPT</div>
+            <div class="video-title">Long Short-Term Memory (LSTM) — Explained</div>
+            <div class="video-desc">A comprehensive walkthrough of how LSTM networks work — covering the forget gate, input gate, output gate, and cell state with visual explanations of sequence memory management. Click to watch on YouTube.</div>
+          </div>
+        </div>
+      </a>
+    </div>
+    <a class="vlab-banner" href="https://spoken-iitr.vlabs.ac.in/" target="_blank" rel="noopener">
+      <div class="vlab-icon">🔬</div>
+      <div class="vlab-body">
+        <div class="vlab-title">Virtual Lab — IIT Roorkee Spoken Tutorial</div>
+        <div class="vlab-desc">Access the official Virtual Lab for hands-on experiments with neural network concepts including sequence modelling and deep learning architectures.</div>
+      </div>
+      <div class="vlab-arrow">→</div>
+    </a>
+  </div>
+</div>
+
+<!-- ═══════════════════ REFERENCES ═══════════════════ -->
+<div class="page" id="page-refs">
+  <div class="refs-scroll">
+    <div class="ltag">// FURTHER READING</div>
+    <div class="refs-h1">References &amp; Further Reading</div>
+    <p class="refs-sub">Textbooks, research papers, and official resources for deeper study of LSTM networks and sequence modelling.</p>
+
+    <div class="ref-group">
+      <div class="ref-group-title">📘 Prescribed Textbooks</div>
+      <div class="ref-item">
+        <div class="ref-num">[1]</div>
+        <div class="ref-body">
+          <div class="ref-title">Deep Learning</div>
+          <div class="ref-authors">Ian Goodfellow, Yoshua Bengio, Aaron Courville</div>
+          <div class="ref-meta">MIT Press, 2016 · Chapter 10: Sequence Modelling — Recurrent and Recursive Nets</div>
+          <a class="ref-link" href="https://www.deeplearningbook.org/contents/rnn.html" target="_blank">deeplearningbook.org/contents/rnn.html →</a>
+        </div>
+      </div>
+      <div class="ref-item">
+        <div class="ref-num">[2]</div>
+        <div class="ref-body">
+          <div class="ref-title">Neural Networks and Deep Learning</div>
+          <div class="ref-authors">Michael Nielsen</div>
+          <div class="ref-meta">Online Book, 2019 · Chapter on Recurrent Neural Networks</div>
+          <a class="ref-link" href="http://neuralnetworksanddeeplearning.com/" target="_blank">neuralnetworksanddeeplearning.com →</a>
+        </div>
+      </div>
+      <div class="ref-item">
+        <div class="ref-num">[3]</div>
+        <div class="ref-body">
+          <div class="ref-title">Pattern Recognition and Machine Learning</div>
+          <div class="ref-authors">Christopher M. Bishop</div>
+          <div class="ref-meta">Springer, 2006 · Chapter 5: Neural Networks</div>
+          <a class="ref-link" href="https://www.microsoft.com/en-us/research/publication/pattern-recognition-machine-learning/" target="_blank">microsoft.com/research → PRML →</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="ref-group">
+      <div class="ref-group-title">📄 Foundational Research Papers</div>
+      <div class="ref-item">
+        <div class="ref-num">[4]</div>
+        <div class="ref-body">
+          <div class="ref-title">Long Short-Term Memory</div>
+          <div class="ref-authors">Sepp Hochreiter, Jürgen Schmidhuber</div>
+          <div class="ref-meta">Neural Computation, 9(8):1735–1780, 1997 — The original LSTM paper</div>
+          <a class="ref-link" href="https://www.bioinf.jku.at/publications/older/2604.pdf" target="_blank">bioinf.jku.at — Original PDF →</a>
+        </div>
+      </div>
+      <div class="ref-item">
+        <div class="ref-num">[5]</div>
+        <div class="ref-body">
+          <div class="ref-title">Learning to Forget: Continual Prediction with LSTM</div>
+          <div class="ref-authors">Felix A. Gers, Jürgen Schmidhuber, Fred Cummins</div>
+          <div class="ref-meta">Neural Computation, 12(10):2451–2471, 2000 — Introduced the forget gate</div>
+          <a class="ref-link" href="https://ieeexplore.ieee.org/document/6795963" target="_blank">ieeexplore.ieee.org →</a>
+        </div>
+      </div>
+      <div class="ref-item">
+        <div class="ref-num">[6]</div>
+        <div class="ref-body">
+          <div class="ref-title">Empirical Evaluation of Gated Recurrent Neural Networks on Sequence Modeling</div>
+          <div class="ref-authors">Junyoung Chung, Caglar Gulcehre, KyungHyun Cho, Yoshua Bengio</div>
+          <div class="ref-meta">arXiv:1412.3555, 2014 — LSTM vs GRU comparison</div>
+          <a class="ref-link" href="https://arxiv.org/abs/1412.3555" target="_blank">arxiv.org/abs/1412.3555 →</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="ref-group">
+      <div class="ref-group-title">🌐 Official Technical Websites &amp; Tutorials</div>
+      <div class="ref-item">
+        <div class="ref-num">[7]</div>
+        <div class="ref-body">
+          <div class="ref-title">Understanding LSTM Networks — Colah's Blog</div>
+          <div class="ref-authors">Christopher Olah</div>
+          <div class="ref-meta">The most cited visual explanation of LSTMs on the internet</div>
+          <a class="ref-link" href="https://colah.github.io/posts/2015-08-Understanding-LSTMs/" target="_blank">colah.github.io/posts/2015-08-Understanding-LSTMs →</a>
+        </div>
+      </div>
+      <div class="ref-item">
+        <div class="ref-num">[8]</div>
+        <div class="ref-body">
+          <div class="ref-title">PyTorch LSTM Documentation</div>
+          <div class="ref-authors">PyTorch Team — Meta AI</div>
+          <div class="ref-meta">Official API docs for torch.nn.LSTM with parameter descriptions and examples</div>
+          <a class="ref-link" href="https://pytorch.org/docs/stable/generated/torch.nn.LSTM.html" target="_blank">pytorch.org/docs — torch.nn.LSTM →</a>
+        </div>
+      </div>
+      <div class="ref-item">
+        <div class="ref-num">[9]</div>
+        <div class="ref-body">
+          <div class="ref-title">TensorFlow — Working with RNNs</div>
+          <div class="ref-authors">TensorFlow Team — Google</div>
+          <div class="ref-meta">Official TensorFlow guide covering LSTM, GRU and sequence modelling APIs</div>
+          <a class="ref-link" href="https://www.tensorflow.org/guide/keras/working_with_rnns" target="_blank">tensorflow.org/guide/keras/working_with_rnns →</a>
+        </div>
+      </div>
+      <div class="ref-item">
+        <div class="ref-num">[10]</div>
+        <div class="ref-body">
+          <div class="ref-title">Virtual Lab — NPTEL / IITR Deep Learning</div>
+          <div class="ref-authors">IIT Roorkee</div>
+          <div class="ref-meta">Government of India Virtual Labs initiative — Spoken Tutorial resources</div>
+          <a class="ref-link" href="https://spoken-iitr.vlabs.ac.in/" target="_blank">spoken-iitr.vlabs.ac.in →</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- STEP DETAIL MODAL -->
+<div class="step-modal-overlay" id="stepDetailModal">
+  <div class="step-modal-box">
+    <div class="step-modal-header">
+      <div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--gold);letter-spacing:2px;text-transform:uppercase;margin-bottom:4px">// LSTM STEP ANALYSIS</div>
+        <div class="step-modal-title" id="smdTitle">Step — / —</div>
+      </div>
+      <button class="step-modal-close" onclick="closeStepModal()">✕ Close</button>
+    </div>
+    <div class="step-modal-body" id="smdBody">
+      <!-- populated by JS -->
+    </div>
+    <div class="smd-nav">
+      <button class="smd-nav-btn" id="smdPrevBtn" onclick="smdNavigate(-1)">← Previous Step</button>
+      <span class="smd-step-counter" id="smdCounter"></span>
+      <button class="smd-nav-btn" id="smdNextBtn" onclick="smdNavigate(1)">Next Step →</button>
+    </div>
+  </div>
+</div>
+
+<!-- HELP MODAL -->
+<div class="modal-overlay" id="helpModal" onclick="if(event.target===this)closeHelp()">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeHelp()">✕ Close</button>
+    <div class="modal-h1">Help &amp; Guide</div>
+    <p class="modal-sub">LSTMVis is an interactive visualization tool for Long Short-Term Memory networks. Here's how to use each section.</p>
+    
+    <div class="help-section">
+      <div class="help-section-title">🧭 Navigation</div>
+      <div class="help-row"><div class="help-key">Home</div><div class="help-val">Landing page with overview and quick-access cards to all sections.</div></div>
+      <div class="help-row"><div class="help-key">Learn</div><div class="help-val">Theory module: definitions, equations, gates, BPTT, variants, and use-cases with a worked example.</div></div>
+      <div class="help-row"><div class="help-key">Simulate</div><div class="help-val">Run the live LSTM forward pass. Enter any sequence, choose hidden size, and step through time.</div></div>
+      <div class="help-row"><div class="help-key">Video</div><div class="help-val">Curated YouTube videos explaining LSTM from beginner to advanced level.</div></div>
+      <div class="help-row"><div class="help-key">Export</div><div class="help-val">Preview and download your simulation session as a .txt report or .csv file.</div></div>
+      <div class="help-row"><div class="help-key">References</div><div class="help-val">Textbooks, research papers, and official websites for further reading.</div></div>
+    </div>
+
+    <div class="help-section">
+      <div class="help-section-title">⚡ Simulation Controls</div>
+      <div class="help-row"><div class="help-key">▶ Play</div><div class="help-val">Auto-advance through all timesteps at the selected speed. Click again to pause.</div></div>
+      <div class="help-row"><div class="help-key">⏭ Step</div><div class="help-val">Advance one timestep at a time to inspect gate values in detail.</div></div>
+      <div class="help-row"><div class="help-key">↺ Reset</div><div class="help-val">Reset to step 0 while keeping the same sequence and weights.</div></div>
+      <div class="help-row"><div class="help-key">✕ Clear</div><div class="help-val">Clear all data and reset the LSTM cell with new random weights.</div></div>
+      <div class="help-row"><div class="help-key">Speed slider</div><div class="help-val">Controls delay between auto-steps. Left = faster (0.2s), right = slower (2.0s).</div></div>
+    </div>
+
+    <div class="help-section">
+      <div class="help-section-title">🔬 Reading the Canvas</div>
+      <div class="help-row"><div class="help-key" style="color:var(--forget)">f gate</div><div class="help-val">Forget gate — how much of the old cell state is kept (0=erase, 1=keep).</div></div>
+      <div class="help-row"><div class="help-key" style="color:var(--input)">i gate</div><div class="help-val">Input gate — how much new information is written into memory.</div></div>
+      <div class="help-row"><div class="help-key" style="color:var(--update)">C̃ gate</div><div class="help-val">Candidate — new candidate values proposed for the cell state.</div></div>
+      <div class="help-row"><div class="help-key" style="color:var(--output)">o gate</div><div class="help-val">Output gate — which parts of the cell state become the hidden output.</div></div>
+    </div>
+
+    <div class="help-section">
+      <div class="help-section-title">💾 Exporting Data</div>
+      <div class="help-row"><div class="help-key">.txt</div><div class="help-val">Human-readable session report with all gate activations and state values per step.</div></div>
+      <div class="help-row"><div class="help-key">.csv</div><div class="help-val">Comma-separated values, one row per timestep — ideal for spreadsheet analysis.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+
+// ════════════════════════════════════════════════════
+//  DATASET UPLOAD & REAL BPTT TRAINING
+// ════════════════════════════════════════════════════
+let uploadedDataset = null;   // full cleaned text from CSV
+let uploadedSequences = [];   // array of training sequences
+let trainingMetrics = null;
+let trainedWeights = null;    // weights saved after real training
+
+function onModeChange(mode) {
+  document.getElementById('presetControls').style.display = mode === 'preset' ? 'flex' : 'none';
+  document.getElementById('datasetControls').style.display = mode === 'dataset' ? 'flex' : 'none';
+}
+
+function clearTraining() {
+  trainedWeights = null;
+  trainingMetrics = null;
+  uploadedSequences = [];
+  uploadedDataset = null;
+  document.getElementById('trainedBadge').style.display = 'none';
+  document.getElementById('datasetName').textContent = 'No file selected';
+  document.getElementById('datasetFile').value = '';
+  document.getElementById('simInput').value = 'ABCABC';
+  document.getElementById('simInput').placeholder = '';
+  onInputChange('ABCABC');
+  resetSim();
+  showToast('Training cleared — using random weights', 'info');
+}
+
+function onDatasetUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  document.getElementById('datasetName').textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const raw = e.target.result;
+    // Parse CSV rows → collect all non-empty text sequences
+    const rows = raw.split(/[\r\n]+/).filter(r => r.trim());
+    uploadedSequences = [];
+    rows.forEach(row => {
+      // Take the first column (sequence) — strip quotes and header
+      const cols = row.split(',');
+      const text = cols[0].replace(/["']/g, '').trim().toUpperCase().replace(/[^A-Z0-9 .!?]/g, '').trim();
+      if (text && text !== 'SEQUENCE' && text.length >= 3) uploadedSequences.push(text);
+    });
+    // Also build a joined text for display
+    uploadedDataset = uploadedSequences.slice(0, 8).join(' ').slice(0, 40).trim();
+    showToast(`Dataset loaded — ${uploadedSequences.length} sequences ready for training`, 'ok');
+  };
+  reader.readAsText(file);
+}
+
+// ── Real BPTT LSTM trainer (vanilla JS, no libraries) ──
+// Uses character-level next-token prediction as the training objective.
+// Forward + backward through time with Adam optimizer.
+
+function trainOnDataset() {
+  if (!uploadedSequences.length) { showToast('Upload a CSV or TXT file first!', 'info'); return; }
+
+  const bar = document.getElementById('trainingBar');
+  const fill = document.getElementById('trainProgressFill');
+  const label = document.getElementById('trainLabel');
+  const pct = document.getElementById('trainPct');
+  bar.style.display = 'flex';
+
+  // Build vocabulary from ALL sequences
+  const allText = uploadedSequences.join(' ');
+  const vocab = [...new Set(allText.split(''))].sort();
+  const vocabSize = vocab.length;
+  const hiddenSize = parseInt(document.getElementById('simHidden').value) || 8;
+  const learningRate = 0.02;
+  const totalEpochs = 50;
+
+  // Init real LSTM weights
+  const s = 0.1;
+  const total = vocabSize + hiddenSize;
+  let W = {
+    Wf: mkMat(hiddenSize, total, s), Wi: mkMat(hiddenSize, total, s),
+    Wc: mkMat(hiddenSize, total, s), Wo: mkMat(hiddenSize, total, s),
+    bf: new Array(hiddenSize).fill(1.0),  // forget bias init high
+    bi: new Array(hiddenSize).fill(0.0),
+    bc: new Array(hiddenSize).fill(0.0),
+    bo: new Array(hiddenSize).fill(0.0),
+    Wy: mkMat(vocabSize, hiddenSize, s),  // output projection
+    by: new Array(vocabSize).fill(0.0)
+  };
+
+  // Adam optimizer state
+  let adam = initAdam(W);
+
+  trainingMetrics = { epochs: totalEpochs, lossHistory: [], accHistory: [] };
+  let epoch = 0;
+
+  function runEpoch() {
+    if (epoch >= totalEpochs) {
+      // Training done — store trained weights for simulation
+      trainedWeights = { W, vocab, vocabSize, hiddenSize };
+      const finalLoss = trainingMetrics.lossHistory[trainingMetrics.lossHistory.length-1].toFixed(4);
+      label.textContent = `✓ Training complete — loss: ${finalLoss} | vocab: [${vocab.join('')}]`;
+      setTimeout(() => { bar.style.display = 'none'; }, 4000);
+
+      // Store trained weights into simCell but DON'T load any sequence
+      simVocab = vocab;
+      simHiddenSize = hiddenSize;
+      simCell = new LSTMCell(vocabSize, hiddenSize);
+      simCell.Wf = W.Wf.map(r=>[...r]);
+      simCell.Wi = W.Wi.map(r=>[...r]);
+      simCell.Wc = W.Wc.map(r=>[...r]);
+      simCell.Wo = W.Wo.map(r=>[...r]);
+      simCell.bf = [...W.bf];
+      simCell.bi = [...W.bi];
+      simCell.bc = [...W.bc];
+      simCell.bo = [...W.bo];
+      simH = new Array(hiddenSize).fill(0);
+      simC = new Array(hiddenSize).fill(0);
+      simStep = 0;
+      simHistory = [];
+
+      // Switch to preset/custom mode so user can type their own test sequence
+      document.getElementById('simMode').value = 'preset';
+      onModeChange('preset');
+
+      // Show trained badge
+      document.getElementById('trainedBadge').style.display = 'flex';
+
+      // Clear the input and show a helpful placeholder
+      const inputEl = document.getElementById('simInput');
+      inputEl.value = '';
+      inputEl.placeholder = `Type to test — vocab: ${vocab.join(' ')}`;
+      simSeq = '';
+
+      renderSeqDisplay();
+      updateStatePanel(null, 0);
+      updateLog();
+      drawLSTMDiagram(null);
+      updateMetricsPanel();
+
+      // Show a prominent prompt to the user
+      document.getElementById('stepExplainText').innerHTML =
+        `<strong style="color:var(--green)">✓ Training complete!</strong> &nbsp;The LSTM has learned from your data. &nbsp;
+        <strong style="color:var(--gold)">Now type any sequence above to test the trained weights.</strong> &nbsp;
+        Use only characters from the learned vocab: &nbsp;
+        <span style="font-family:'IBM Plex Mono',monospace;color:var(--teal)">[${vocab.join('  ')}]</span> &nbsp;
+        then press <strong style="color:var(--text)">▶ Play</strong>.`;
+      document.getElementById('stepDetailBtn').style.display = 'none';
+
+      showToast('✓ Training done! Type your own sequence to test.', 'ok');
+      return;
+    }
+
+    // One epoch: iterate over ALL sequences
+    let epochLoss = 0, epochCorrect = 0, epochTotal = 0;
+    const seqs = uploadedSequences; // use full dataset
+    const lr = learningRate * Math.pow(0.97, epoch); // learning rate decay
+
+    seqs.forEach(seq => {
+      if (seq.length < 2) return;
+      // Forward pass through sequence
+      let h = new Array(hiddenSize).fill(0);
+      let c = new Array(hiddenSize).fill(0);
+      const cache = [];
+
+      for (let t = 0; t < seq.length - 1; t++) {
+        const xt = oneHotVec(seq[t], vocab);
+        const target = vocab.indexOf(seq[t+1]);
+        if (target < 0) continue;
+
+        // Forward LSTM step
+        const fwd = lstmForward(W, xt, h, c);
+        // Output projection → softmax
+        const logits = matVecMulArr(W.Wy, fwd.hNew).map((v,i) => v + W.by[i]);
+        const probs = softmax(logits);
+
+        const loss = -Math.log(probs[target] + 1e-9);
+        epochLoss += loss;
+        epochTotal++;
+        if (argmax(probs) === target) epochCorrect++;
+
+        cache.push({ xt, hPrev: h, cPrev: c, fwd, probs, target });
+        h = fwd.hNew;
+        c = fwd.cNew;
+      }
+
+      // Backward pass (BPTT)
+      const grads = zeroGrads(W);
+      let dhNext = new Array(hiddenSize).fill(0);
+      let dcNext = new Array(hiddenSize).fill(0);
+
+      for (let t = cache.length - 1; t >= 0; t--) {
+        const { xt, hPrev, cPrev, fwd, probs, target } = cache[t];
+
+        // Output layer gradient
+        const dLogits = [...probs];
+        dLogits[target] -= 1;
+
+        // dWy, dby
+        for (let i = 0; i < vocabSize; i++) {
+          for (let j = 0; j < hiddenSize; j++) grads.Wy[i][j] += dLogits[i] * fwd.hNew[j];
+          grads.by[i] += dLogits[i];
+        }
+
+        // dh from output layer
+        const dh = new Array(hiddenSize).fill(0);
+        for (let j = 0; j < hiddenSize; j++) {
+          for (let i = 0; i < vocabSize; i++) dh[j] += W.Wy[i][j] * dLogits[i];
+          dh[j] += dhNext[j];
+        }
+
+        // Backprop through LSTM cell
+        const bp = lstmBackward(W, fwd, xt, hPrev, cPrev, dh, dcNext);
+        dhNext = bp.dhPrev;
+        dcNext = bp.dcPrev;
+
+        // Accumulate weight gradients
+        addGrads(grads, bp.dW);
+      }
+
+      // Adam update with decayed lr
+      adam = adamUpdate(W, grads, adam, lr);
+    });
+
+    const avgLoss = epochLoss / Math.max(epochTotal, 1);
+    const acc = epochCorrect / Math.max(epochTotal, 1);
+    trainingMetrics.lossHistory.push(parseFloat(avgLoss.toFixed(4)));
+    trainingMetrics.accHistory.push(parseFloat(acc.toFixed(4)));
+
+    epoch++;
+    const progress = epoch / totalEpochs;
+    fill.style.width = (progress * 100) + '%';
+    pct.textContent = Math.round(progress * 100) + '%';
+    label.textContent = `Epoch ${epoch}/${totalEpochs} — loss: ${avgLoss.toFixed(4)} | acc: ${(acc*100).toFixed(1)}% | vocab: ${vocabSize} chars`;
+
+    // Yield to browser between epochs
+    setTimeout(runEpoch, 10);
+  }
+
+  runEpoch();
+}
+
+// ── LSTM Forward (returns full cache for backprop) ──
+function lstmForward(W, xt, hPrev, cPrev) {
+  const concat = [...hPrev, ...xt];
+  const ft = matVecMulArr(W.Wf, concat).map((v,i) => sigmoid(v + W.bf[i]));
+  const it = matVecMulArr(W.Wi, concat).map((v,i) => sigmoid(v + W.bi[i]));
+  const ct_tilde = matVecMulArr(W.Wc, concat).map((v,i) => Math.tanh(v + W.bc[i]));
+  const ot = matVecMulArr(W.Wo, concat).map((v,i) => sigmoid(v + W.bo[i]));
+  const cNew = ft.map((f,i) => f * cPrev[i] + it[i] * ct_tilde[i]);
+  const hNew = ot.map((o,i) => o * Math.tanh(cNew[i]));
+  return { ft, it, ct_tilde, ot, cNew, hNew, concat };
+}
+
+// ── LSTM Backward ──
+function lstmBackward(W, fwd, xt, hPrev, cPrev, dhNext, dcNext) {
+  const { ft, it, ct_tilde, ot, cNew, hNew, concat } = fwd;
+  const H = hNew.length;
+  const dW = { Wf:zeroMat(W.Wf), Wi:zeroMat(W.Wi), Wc:zeroMat(W.Wc), Wo:zeroMat(W.Wo),
+               bf:new Array(H).fill(0), bi:new Array(H).fill(0), bc:new Array(H).fill(0), bo:new Array(H).fill(0) };
+
+  // dh → dc
+  const dc = new Array(H).fill(0);
+  const doPre = new Array(H).fill(0);
+  for (let i = 0; i < H; i++) {
+    const tanhC = Math.tanh(cNew[i]);
+    doPre[i] = dhNext[i] * tanhC * ot[i] * (1 - ot[i]);
+    dc[i] = dhNext[i] * ot[i] * (1 - tanhC * tanhC) + dcNext[i];
+  }
+
+  const dfPre = ft.map((f,i) => dc[i] * cPrev[i] * f * (1 - f));
+  const diPre = it.map((v,i) => dc[i] * ct_tilde[i] * v * (1 - v));
+  const dcPre = ct_tilde.map((v,i) => dc[i] * it[i] * (1 - v * v));
+  const dcPrev = ft.map((f,i) => dc[i] * f);
+
+  // Weight gradients
+  const gates = [[W.Wf, dW.Wf, dW.bf, dfPre], [W.Wi, dW.Wi, dW.bi, diPre],
+                 [W.Wc, dW.Wc, dW.bc, dcPre], [W.Wo, dW.Wo, dW.bo, doPre]];
+  gates.forEach(([,,db, dpre]) => {
+    for (let i = 0; i < H; i++) db[i] += dpre[i];
+  });
+  [[dW.Wf, dfPre],[dW.Wi, diPre],[dW.Wc, dcPre],[dW.Wo, doPre]].forEach(([dWg, dpre]) => {
+    for (let i = 0; i < H; i++)
+      for (let j = 0; j < concat.length; j++) dWg[i][j] += dpre[i] * concat[j];
+  });
+
+  // dhPrev: sum of gate contributions back through concat
+  const dConcat = new Array(concat.length).fill(0);
+  [[W.Wf, dfPre],[W.Wi, diPre],[W.Wc, dcPre],[W.Wo, doPre]].forEach(([Wg, dpre]) => {
+    for (let i = 0; i < H; i++)
+      for (let j = 0; j < concat.length; j++) dConcat[j] += Wg[i][j] * dpre[i];
+  });
+  const dhPrev = dConcat.slice(0, H);
+
+  return { dW, dhPrev, dcPrev };
+}
+
+// ── Adam optimizer ──
+function initAdam(W) {
+  const z = obj => {
+    const r = {};
+    for (const k in obj) r[k] = Array.isArray(obj[k][0]) ? obj[k].map(r=>r.map(()=>0)) : obj[k].map(()=>0);
+    return r;
+  };
+  return { m: z(W), v: z(W), t: 0 };
+}
+
+function adamUpdate(W, grads, adam, lr) {
+  const beta1 = 0.9, beta2 = 0.999, eps = 1e-8;
+  adam.t++;
+  const keys = Object.keys(W);
+  keys.forEach(k => {
+    const isMatrix = Array.isArray(W[k][0]);
+    if (isMatrix) {
+      for (let i = 0; i < W[k].length; i++) {
+        for (let j = 0; j < W[k][i].length; j++) {
+          const g = Math.max(-5, Math.min(5, grads[k][i][j])); // gradient clip
+          adam.m[k][i][j] = beta1 * adam.m[k][i][j] + (1-beta1) * g;
+          adam.v[k][i][j] = beta2 * adam.v[k][i][j] + (1-beta2) * g * g;
+          const mHat = adam.m[k][i][j] / (1 - Math.pow(beta1, adam.t));
+          const vHat = adam.v[k][i][j] / (1 - Math.pow(beta2, adam.t));
+          W[k][i][j] -= lr * mHat / (Math.sqrt(vHat) + eps);
+        }
+      }
+    } else {
+      for (let i = 0; i < W[k].length; i++) {
+        const g = Math.max(-5, Math.min(5, grads[k][i]));
+        adam.m[k][i] = beta1 * adam.m[k][i] + (1-beta1) * g;
+        adam.v[k][i] = beta2 * adam.v[k][i] + (1-beta2) * g * g;
+        const mHat = adam.m[k][i] / (1 - Math.pow(beta1, adam.t));
+        const vHat = adam.v[k][i] / (1 - Math.pow(beta2, adam.t));
+        W[k][i] -= lr * mHat / (Math.sqrt(vHat) + eps);
+      }
+    }
+  });
+  return adam;
+}
+
+// ── Utility helpers ──
+function mkMat(r, c, s) { return Array.from({length:r}, ()=>Array.from({length:c}, ()=>(Math.random()-0.5)*2*s)); }
+function zeroMat(M) { return M.map(r=>r.map(()=>0)); }
+function zeroGrads(W) {
+  const g = {};
+  for (const k in W) g[k] = Array.isArray(W[k][0]) ? zeroMat(W[k]) : new Array(W[k].length).fill(0);
+  return g;
+}
+function addGrads(g, dW) {
+  for (const k in dW) {
+    if (Array.isArray(dW[k][0])) {
+      for (let i=0;i<dW[k].length;i++) for (let j=0;j<dW[k][i].length;j++) g[k][i][j]+=dW[k][i][j];
+    } else {
+      for (let i=0;i<dW[k].length;i++) g[k][i]+=dW[k][i];
+    }
+  }
+}
+function matVecMulArr(W, x) { return W.map(row => row.reduce((s,v,j)=>s+v*(x[j]||0), 0)); }
+function softmax(arr) {
+  const max = Math.max(...arr);
+  const exp = arr.map(v => Math.exp(v - max));
+  const sum = exp.reduce((a,b)=>a+b,0);
+  return exp.map(v => v/sum);
+}
+function argmax(arr) { return arr.indexOf(Math.max(...arr)); }
+function oneHotVec(ch, vocab) { return vocab.map(v => v===ch ? 1 : 0); }
+
+function updateMetricsPanel() {
+  const el = document.getElementById('metricsContent');
+  const hasData = simHistory.length > 0;
+  const hasTrain = trainingMetrics && trainingMetrics.lossHistory.length > 0;
+
+  if (!hasData && !hasTrain) {
+    el.innerHTML = '<div style="font-size:11px;color:var(--text-muted);line-height:1.7;padding:12px 0">Run a simulation to see performance metrics.</div>';
+    return;
+  }
+
+  let html = '';
+
+  if (hasTrain) {
+    const finalLoss = trainingMetrics.lossHistory[trainingMetrics.lossHistory.length - 1];
+    const finalAcc = trainingMetrics.accHistory[trainingMetrics.accHistory.length - 1];
+    const initLoss = trainingMetrics.lossHistory[0];
+    const improvement = (((initLoss - finalLoss) / initLoss) * 100).toFixed(1);
+
+    html += `
+    <div style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--amber);letter-spacing:2px;text-transform:uppercase">Training Metrics</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:8px;background:#4ade8022;border:1px solid var(--green);color:var(--green);padding:1px 7px;border-radius:10px">✓ REAL BPTT</div>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;line-height:1.6">
+        Trained using <strong style="color:var(--text)">Backpropagation Through Time</strong> with Adam optimizer (lr=0.01, β1=0.9, β2=0.999, gradient clip ±5). 
+        Objective: next-character prediction. Weights updated after every sequence.
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-muted)">Final Loss</div>
+          <div style="font-size:20px;font-weight:700;color:var(--rose);margin-top:4px">${finalLoss.toFixed(4)}</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-muted)">Accuracy</div>
+          <div style="font-size:20px;font-weight:700;color:var(--green);margin-top:4px">${(finalAcc*100).toFixed(1)}%</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-muted)">Loss ↓ Improvement</div>
+          <div style="font-size:20px;font-weight:700;color:var(--teal);margin-top:4px">${improvement}%</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-muted)">Epochs</div>
+          <div style="font-size:20px;font-weight:700;color:var(--gold);margin-top:4px">${trainingMetrics.epochs}</div>
+        </div>
+      </div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-muted);margin-bottom:6px">Loss per Epoch</div>
+      <div style="display:flex;align-items:flex-end;gap:3px;height:40px;margin-bottom:12px">
+        ${trainingMetrics.lossHistory.map(l => {
+          const h = Math.max(4, Math.round((l / 2.5) * 40));
+          return `<div style="flex:1;height:${h}px;background:var(--rose);border-radius:2px 2px 0 0;opacity:0.8"></div>`;
+        }).join('')}
+      </div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-muted);margin-bottom:6px">Accuracy per Epoch</div>
+      <div style="display:flex;align-items:flex-end;gap:3px;height:40px">
+        ${trainingMetrics.accHistory.map(a => {
+          const h = Math.max(2, Math.round(a * 40));
+          return `<div style="flex:1;height:${h}px;background:var(--green);border-radius:2px 2px 0 0;opacity:0.8"></div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }
+
+  if (hasData) {
+    const avgForget = (simHistory.reduce((s,r)=>s+r.forget,0)/simHistory.length).toFixed(3);
+    const avgInput = (simHistory.reduce((s,r)=>s+r.input,0)/simHistory.length).toFixed(3);
+    const avgOutput = (simHistory.reduce((s,r)=>s+r.output,0)/simHistory.length).toFixed(3);
+    const avgCell = (simHistory.reduce((s,r)=>s+r.cellAvg,0)/simHistory.length).toFixed(3);
+    const avgHid = (simHistory.reduce((s,r)=>s+r.hidAvg,0)/simHistory.length).toFixed(3);
+    const maxCell = Math.max(...simHistory.map(r=>r.cellAvg)).toFixed(3);
+    const memPct = simHistory.length ? Math.round(simHistory.filter(r=>r.memory==='High'||r.memory==='Med').length/simHistory.length*100) : 0;
+
+    html += `
+    <div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--teal);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px">Simulation Metrics (${simHistory.length} steps)</div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        ${[
+          ['Avg Forget Gate', avgForget, 'var(--forget)', parseFloat(avgForget)],
+          ['Avg Input Gate', avgInput, 'var(--input)', parseFloat(avgInput)],
+          ['Avg Output Gate', avgOutput, 'var(--output)', parseFloat(avgOutput)],
+        ].map(([label, val, color, pct]) => `
+          <div style="margin-bottom:6px">
+            <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-muted);margin-bottom:3px"><span>${label}</span><span style="color:${color}">${val}</span></div>
+            <div style="height:5px;background:var(--surface3);border-radius:3px;overflow:hidden"><div style="height:100%;width:${pct*100}%;background:${color};border-radius:3px"></div></div>
+          </div>`).join('')}
+        <div style="height:1px;background:var(--border);margin:6px 0"></div>
+        <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:9px;padding:3px 0"><span style="color:var(--text-muted)">Avg Cell State</span><span style="color:var(--cell)">${avgCell}</span></div>
+        <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:9px;padding:3px 0"><span style="color:var(--text-muted)">Avg Hidden State</span><span style="color:var(--gold)">${avgHid}</span></div>
+        <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:9px;padding:3px 0"><span style="color:var(--text-muted)">Peak Cell State</span><span style="color:var(--amber)">${maxCell}</span></div>
+        <div style="display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:9px;padding:3px 0"><span style="color:var(--text-muted)">Memory retention rate</span><span style="color:var(--green)">${memPct}%</span></div>
+      </div>
+    </div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+function switchSimTab(tab) {
+  ['gates','metrics','log'].forEach(t => {
+    document.getElementById('panel' + t.charAt(0).toUpperCase() + t.slice(1)).style.display = t === tab ? (t === 'gates' ? 'flex' : 'block') : 'none';
+    const btn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
+    btn.style.background = t === tab ? 'var(--surface3)' : 'transparent';
+    btn.style.color = t === tab ? 'var(--gold)' : 'var(--text-muted)';
+    btn.style.borderBottom = t === tab ? '2px solid var(--gold)' : '2px solid transparent';
+  });
+  if (tab === 'metrics') updateMetricsPanel();
+}
+
+// ────────────────────────────────────────────────────
+//  STEP-BY-STEP EXPLANATION GENERATOR
+// ────────────────────────────────────────────────────
+function getStepExplanation(rec, step, total) {
+  if (!rec) return 'Waiting for simulation data…';
+  const f = rec.forget.toFixed(2), i = rec.input.toFixed(2), c = rec.candidate.toFixed(2), o = rec.output.toFixed(2);
+  const char = rec.char;
+  const fLabel = rec.forget > 0.7 ? 'HIGH — most old memory is <strong style="color:var(--green)">retained</strong>' : rec.forget < 0.35 ? 'LOW — significant old memory is <strong style="color:var(--rose)">erased</strong>' : 'MEDIUM — partial memory retained';
+  const iLabel = rec.input > 0.65 ? 'HIGH — lots of new information <strong style="color:var(--green)">written</strong> to cell' : rec.input < 0.35 ? 'LOW — little new information stored' : 'MODERATE — selective update';
+  const oLabel = rec.output > 0.65 ? 'HIGH — strong hidden state output' : rec.output < 0.35 ? 'LOW — suppressed output' : 'MODERATE output';
+  const memNote = rec.memory === 'High' ? '🟢 High memory retention' : rec.memory === 'Med' ? '🟡 Moderate retention' : '🔴 Low retention — cell state mostly reset';
+
+  return `<strong style="color:var(--gold)">Step ${step}/${total}</strong> — Processing token <strong style="color:var(--amber)">"${char}"</strong> &nbsp;|&nbsp;
+    <strong style="color:var(--forget)">Forget gate</strong>: ${f} → ${fLabel}. &nbsp;
+    <strong style="color:var(--input)">Input gate</strong>: ${i} → ${iLabel}. &nbsp;
+    <strong style="color:var(--update)">Candidate</strong>: ${c} (proposed memory update). &nbsp;
+    <strong style="color:var(--output)">Output gate</strong>: ${o} → ${oLabel}. &nbsp;
+    Cell state avg: <strong style="color:var(--cell)">${rec.cellAvg.toFixed(3)}</strong> &nbsp;|&nbsp; Hidden avg: <strong style="color:var(--gold)">${rec.hidAvg.toFixed(3)}</strong> &nbsp;|&nbsp; ${memNote}`;
+}
+</script>
+
+<script>
+'use strict';
+// ════════════════════════════════════════════════════
+//  NAVIGATION
+// ════════════════════════════════════════════════════
+function goPage(name, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  if (btn) btn.classList.add('active');
+  const pct = {home:0,learn:16,sim:33,video:50,download:66,refs:83,about:100};
+  document.getElementById('progBar').style.width = (pct[name]||0) + '%';
+  if (name === 'sim') setTimeout(resizeCanvas, 60);
+  if (name === 'download') buildReport();
+}
+function tocGo(id, el) {
+  document.querySelectorAll('.toc-link').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('sec-' + id)?.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+// ════════════════════════════════════════════════════
+//  HOME DECORATIONS
+// ════════════════════════════════════════════════════
+(function() {
+  const wrap = document.getElementById('homeOrbits');
+  const colors = ['#f0a500','#ff6b35','#4ade80','#60a5fa','#a78bfa'];
+  [200,320,460,580].forEach((r,i) => {
+    const d = document.createElement('div');
+    d.className = 'orbit-ring';
+    d.style.cssText = `width:${r*2}px;height:${r*2}px;left:50%;top:48%;
+      border-color:${colors[i]};
+      animation-duration:${20+i*8}s;
+      animation-direction:${i%2?'reverse':'normal'}`;
+    wrap.appendChild(d);
+  });
+  // ticker
+  const tokens = ['forget_gate','cell_state','h_t','x_t','sigmoid','tanh','BPTT','hidden_size','backprop','sequence_model','gradient_flow','vanishing_gradient','long_term_memory','gate_activation','weight_matrix','time_step','unroll','lstm_cell'];
+  const s = tokens.map(t=>`<span style="color:var(--border2);margin:0 8px">//</span>${t}`).join('') + tokens.map(t=>`<span style="color:var(--border2);margin:0 8px">//</span>${t}`).join('');
+  const el = document.getElementById('homeTicker');
+  el.innerHTML = s + s;
+})();
+
+// ════════════════════════════════════════════════════
+//  LSTM MATH
+// ════════════════════════════════════════════════════
+function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
+function tanh(x) { return Math.tanh(x); }
+function vecAdd(a, b) { return a.map((v,i) => v + b[i]); }
+function vecMul(a, b) { return a.map((v,i) => v * b[i]); }
+function matVecMul(W, x) {
+  return W.map(row => row.reduce((s,v,j) => s + v*x[j], 0));
+}
+function randN(scale) { return (Math.random()-0.5)*2*scale; }
+function makeMatrix(r, c, scale) {
+  return Array.from({length:r}, () => Array.from({length:c}, () => randN(scale)));
+}
+function makeVec(n, scale) { return Array.from({length:n}, () => randN(scale)); }
+
+class LSTMCell {
+  constructor(inputSize, hiddenSize) {
+    const s = 0.08;
+    const total = inputSize + hiddenSize;
+    this.Wf = makeMatrix(hiddenSize, total, s);
+    this.Wi = makeMatrix(hiddenSize, total, s);
+    this.Wc = makeMatrix(hiddenSize, total, s);
+    this.Wo = makeMatrix(hiddenSize, total, s);
+    this.bf = makeVec(hiddenSize, 0.1);
+    this.bi = makeVec(hiddenSize, 0.1);
+    this.bc = makeVec(hiddenSize, 0.1);
+    this.bo = makeVec(hiddenSize, 0.1);
+    // init forget bias high to encourage memory
+    this.bf = this.bf.map(() => 0.8 + randN(0.1));
+    this.hiddenSize = hiddenSize;
+    this.inputSize = inputSize;
+  }
+  forward(xt, hPrev, cPrev) {
+    const concat = [...hPrev, ...xt];
+    const ft = matVecMul(this.Wf, concat).map((v,i) => sigmoid(v + this.bf[i]));
+    const it = matVecMul(this.Wi, concat).map((v,i) => sigmoid(v + this.bi[i]));
+    const ct_tilde = matVecMul(this.Wc, concat).map((v,i) => tanh(v + this.bc[i]));
+    const ot = matVecMul(this.Wo, concat).map((v,i) => sigmoid(v + this.bo[i]));
+    const cNew = vecAdd(vecMul(ft, cPrev), vecMul(it, ct_tilde));
+    const hNew = vecMul(ot, cNew.map(tanh));
+    return { ft, it, ct_tilde, ot, cNew, hNew };
+  }
+}
+
+function avg(arr) { return arr.reduce((s,v)=>s+v,0)/arr.length; }
+
+// ════════════════════════════════════════════════════
+//  SIMULATION STATE
+// ════════════════════════════════════════════════════
+let simSeq = 'ABCABC';
+let simHiddenSize = 8;
+let simCell = null;
+let simH = null, simC = null;
+let simStep = 0;
+let simTimer = null;
+let simHistory = [];  // for export
+let simVocab = [];
+
+function buildVocab(seq) {
+  return [...new Set(seq.split(''))].sort();
+}
+function oneHot(ch, vocab) {
+  return vocab.map(v => v===ch ? 1 : 0);
+}
+
+function initSim() {
+  simSeq = document.getElementById('simInput').value.trim() || 'ABCABC';
+  simHiddenSize = parseInt(document.getElementById('simHidden').value);
+
+  // If we have trained weights, use them — don't overwrite with random
+  if (trainedWeights) {
+    simVocab = trainedWeights.vocab;
+    simHiddenSize = trainedWeights.hiddenSize;
+    // Rebuild LSTMCell from trained weights
+    simCell = new LSTMCell(trainedWeights.vocabSize, trainedWeights.hiddenSize);
+    simCell.Wf = trainedWeights.W.Wf.map(r=>[...r]);
+    simCell.Wi = trainedWeights.W.Wi.map(r=>[...r]);
+    simCell.Wc = trainedWeights.W.Wc.map(r=>[...r]);
+    simCell.Wo = trainedWeights.W.Wo.map(r=>[...r]);
+    simCell.bf = [...trainedWeights.W.bf];
+    simCell.bi = [...trainedWeights.W.bi];
+    simCell.bc = [...trainedWeights.W.bc];
+    simCell.bo = [...trainedWeights.W.bo];
+  } else {
+    simVocab = buildVocab(simSeq);
+    simCell = new LSTMCell(simVocab.length, simHiddenSize);
+  }
+
+  simH = new Array(simHiddenSize).fill(0);
+  simC = new Array(simHiddenSize).fill(0);
+  simStep = 0;
+  simHistory = [];
+  renderSeqDisplay();
+  updateStatePanel(null, 0);
+  updateLog();
+  drawLSTMDiagram(null);
+}
+
+function resetSim() {
+  if (simTimer) { clearInterval(simTimer); simTimer=null; document.getElementById('simPlayBtn').textContent='▶ Play'; }
+  initSim();
+}
+function clearSim() {
+  resetSim();
+  document.getElementById('simInput').value='';
+  simSeq='';
+  renderSeqDisplay();
+}
+
+function stepForward() {
+  if (!simCell || simStep >= simSeq.length) return false;
+  const ch = simSeq[simStep];
+
+  // If char not in trained vocab, skip it and show warning
+  if (trainedWeights && !simVocab.includes(ch)) {
+    simStep++;
+    showToast(`"${ch}" not in trained vocab — skipped`, 'info');
+    return simStep < simSeq.length;
+  }
+
+  const xt = oneHot(ch, simVocab);
+  const { ft, it, ct_tilde, ot, cNew, hNew } = simCell.forward(xt, simH, simC);
+  const record = {
+    step: simStep+1, char: ch,
+    forget: avg(ft), input: avg(it),
+    candidate: avg(ct_tilde), output: avg(ot),
+    cellAvg: avg(cNew), hidAvg: avg(hNew),
+    memory: avg(ft) > 0.65 ? 'High' : avg(ft) > 0.35 ? 'Med' : 'Low'
+  };
+  simHistory.push(record);
+  simH = hNew; simC = cNew;
+  simStep++;
+  updateStatePanel(record, simStep);
+  renderSeqDisplay();
+  drawLSTMDiagram(record);
+  updateLog();
+  return simStep < simSeq.length;
+}
+
+function simStep_fn() { stepForward(); }
+
+function simPlay() {
+  if (simTimer) {
+    clearInterval(simTimer); simTimer=null;
+    document.getElementById('simPlayBtn').textContent='▶ Play';
+    return;
+  }
+  if (!simCell) initSim();
+  if (simStep >= simSeq.length) resetSim();
+  document.getElementById('simPlayBtn').textContent='⏹ Stop';
+  const speed = parseInt(document.getElementById('simSpeed').value);
+  simTimer = setInterval(() => {
+    const more = stepForward();
+    if (!more) {
+      clearInterval(simTimer); simTimer=null;
+      document.getElementById('simPlayBtn').textContent='▶ Play';
+    }
+  }, speed);
+}
+
+document.getElementById('simSpeed').addEventListener('input', function() {
+  const ms = parseInt(this.value);
+  document.getElementById('simSpeedVal').textContent = (ms/1000).toFixed(1)+'s';
+  if (simTimer) {
+    clearInterval(simTimer); simTimer=null;
+    simPlay();
+  }
+});
+
+function loadPreset(v) {
+  const map = {abcabc:'ABCABC',numbers:'1234567',hello:'HELLO WORLD',binary:'10110010',music:'CDEGCDEG'};
+  if (map[v]) { document.getElementById('simInput').value=map[v]; resetSim(); }
+}
+function onInputChange(v) { simSeq=v; }
+
+// ════════════════════════════════════════════════════
+//  UI UPDATE FUNCTIONS
+// ════════════════════════════════════════════════════
+function renderSeqDisplay() {
+  const el = document.getElementById('seqDisplay');
+  el.innerHTML = simSeq.split('').map((ch,i) => {
+    let cls = 'seq-char';
+    if (i === simStep) cls += ' active';
+    else if (i < simStep) cls += ' processed';
+    return `<span class="${cls}">${ch}</span>`;
+  }).join('');
+}
+
+function updateStatePanel(rec, step) {
+  if (!rec) {
+    ['Forget','Input','Candidate','Output'].forEach(g => {
+      document.getElementById('bar'+g).style.width='50%';
+      document.getElementById('val'+g).textContent='—';
+    });
+    document.getElementById('stCellAvg').textContent='—';
+    document.getElementById('stHidAvg').textContent='—';
+    document.getElementById('stStep').textContent='0 / '+(simSeq?.length||0);
+    document.getElementById('stMemory').textContent='—';
+    document.getElementById('predDisplay').innerHTML='';
+    const btn = document.getElementById('stepDetailBtn');
+    if (btn) btn.style.display = 'none';
+    return;
+  }
+  const set = (id,v) => {
+    document.getElementById('bar'+id).style.width=(v*100).toFixed(0)+'%';
+    document.getElementById('val'+id).textContent=v.toFixed(2);
+  };
+  set('Forget',  Math.max(0,Math.min(1,rec.forget)));
+  set('Input',   Math.max(0,Math.min(1,rec.input)));
+  set('Candidate', Math.max(0,Math.min(1,(rec.candidate+1)/2)));
+  set('Output',  Math.max(0,Math.min(1,rec.output)));
+  document.getElementById('stCellAvg').textContent=rec.cellAvg.toFixed(3);
+  document.getElementById('stHidAvg').textContent=rec.hidAvg.toFixed(3);
+  document.getElementById('stStep').textContent=step+' / '+simSeq.length;
+  document.getElementById('stMemory').textContent=rec.memory;
+  updatePredictions();
+  // Update step explanation
+  const explainEl = document.getElementById('stepExplainText');
+  if (explainEl) explainEl.innerHTML = getStepExplanation(rec, step, simSeq.length);
+  // Show detail button
+  const btn = document.getElementById('stepDetailBtn');
+  if (btn) btn.style.display = 'block';
+}
+
+// ════════════════════════════════════════════════════
+//  STEP DETAIL MODAL
+// ════════════════════════════════════════════════════
+let smdCurrentIndex = 0;
+
+function openStepModal() {
+  smdCurrentIndex = simHistory.length - 1;
+  renderStepModal(smdCurrentIndex);
+  document.getElementById('stepDetailModal').classList.add('open');
+}
+
+function closeStepModal() {
+  document.getElementById('stepDetailModal').classList.remove('open');
+}
+
+function smdNavigate(dir) {
+  smdCurrentIndex = Math.max(0, Math.min(simHistory.length-1, smdCurrentIndex + dir));
+  renderStepModal(smdCurrentIndex);
+}
+
+function renderStepModal(idx) {
+  const rec = simHistory[idx];
+  if (!rec) return;
+  const total = simHistory.length;
+
+  document.getElementById('smdTitle').textContent = `Step ${rec.step} of ${simSeq.length} — Processing Token "${rec.char}"`;
+  document.getElementById('smdCounter').textContent = `${idx+1} / ${total} recorded steps`;
+  document.getElementById('smdPrevBtn').disabled = idx === 0;
+  document.getElementById('smdNextBtn').disabled = idx === total - 1;
+
+  const fPct = (rec.forget * 100).toFixed(1);
+  const iPct = (rec.input * 100).toFixed(1);
+  const cPct = (((rec.candidate+1)/2) * 100).toFixed(1);
+  const oPct = (rec.output * 100).toFixed(1);
+
+  const fInterp = rec.forget > 0.7 ? `HIGH (${fPct}%) — The forget gate is wide open. The LSTM is retaining most of its previous cell state (long-term memory). This means the context from earlier tokens is deemed still relevant for understanding "${rec.char}".`
+    : rec.forget < 0.35 ? `LOW (${fPct}%) — The forget gate is nearly closed. The LSTM is aggressively erasing its previous cell state. This typically happens when a new context boundary is encountered — the network decides previous memory is no longer useful at token "${rec.char}".`
+    : `MODERATE (${fPct}%) — The forget gate is partially open. The LSTM is selectively retaining some previous memory and discarding other parts. This balanced state often occurs mid-sequence when old context is partially relevant.`;
+
+  const iInterp = rec.input > 0.65 ? `HIGH (${iPct}%) — The input gate is strongly activated. The LSTM is writing substantial new information about "${rec.char}" into the cell state. This token is being treated as informationally significant.`
+    : rec.input < 0.35 ? `LOW (${iPct}%) — The input gate is nearly closed. Very little new information from "${rec.char}" is being written into memory. The network treats this token as low-informationally-value (e.g., repeated or stop character).`
+    : `MODERATE (${iPct}%) — The input gate is selectively activated. Some information about "${rec.char}" is written into memory, blended with candidate values.`;
+
+  const oInterp = rec.output > 0.65 ? `HIGH (${oPct}%) — The output gate is strongly open. The hidden state h_t is a rich, filtered view of the current cell state — exposing substantial memory content to downstream layers/predictions.`
+    : rec.output < 0.35 ? `LOW (${oPct}%) — The output gate is suppressed. The hidden state h_t exposes little of the cell state, meaning this timestep produces a minimal signal for prediction.`
+    : `MODERATE (${oPct}%) — The output gate selectively filters the cell state into the hidden output.`;
+
+  const memColor = rec.memory === 'High' ? 'var(--green)' : rec.memory === 'Med' ? 'var(--amber)' : 'var(--rose)';
+  const memText = rec.memory === 'High' ? 'Strong — most prior context is preserved' : rec.memory === 'Med' ? 'Moderate — partial context preserved' : 'Low — prior context largely discarded';
+
+  // Previous step delta
+  let deltaHtml = '';
+  if (idx > 0) {
+    const prev = simHistory[idx-1];
+    const dF = (rec.forget - prev.forget).toFixed(3);
+    const dI = (rec.input - prev.input).toFixed(3);
+    const dC = (rec.cellAvg - prev.cellAvg).toFixed(3);
+    const dH = (rec.hidAvg - prev.hidAvg).toFixed(3);
+    const arrow = v => parseFloat(v) >= 0 ? `<span style="color:var(--green)">▲ +${v}</span>` : `<span style="color:var(--rose)">▼ ${v}</span>`;
+    deltaHtml = `
+      <div class="smd-section">
+        <div class="smd-label">Δ Change from Previous Step ("${prev.char}" → "${rec.char}")</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-family:'IBM Plex Mono',monospace;font-size:11px">
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:9px;color:var(--forget);margin-bottom:4px">FORGET Δ</div>${arrow(dF)}</div>
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:9px;color:var(--input);margin-bottom:4px">INPUT Δ</div>${arrow(dI)}</div>
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:9px;color:var(--cell);margin-bottom:4px">CELL Δ</div>${arrow(dC)}</div>
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center">
+            <div style="font-size:9px;color:var(--gold);margin-bottom:4px">HIDDEN Δ</div>${arrow(dH)}</div>
+        </div>
+      </div>`;
+  }
+
+  document.getElementById('smdBody').innerHTML = `
+    <!-- Overview -->
+    <div class="smd-section">
+      <div class="smd-label">Step Overview</div>
+      <div style="background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:14px 18px;font-size:13px;color:var(--text-dim);line-height:1.8">
+        At timestep <strong style="color:var(--gold)">t = ${rec.step}</strong>, the LSTM processes the token 
+        <strong style="color:var(--amber)">"${rec.char}"</strong> (position ${rec.step} of ${simSeq.length} in the sequence 
+        <span style="font-family:'IBM Plex Mono',monospace;color:var(--teal)">"${simSeq}"</span>). 
+        The network concatenates the one-hot encoded input vector x_t with the previous hidden state h_{t-1}, then passes 
+        this through all four gate networks simultaneously. The resulting gate values determine how the cell state C_t and 
+        hidden state h_t are updated for this timestep.
+        ${idx === 0 ? '<br><br><em style="color:var(--text-muted)">Note: This is the first timestep — h₀ and C₀ are initialized to zero vectors.</em>' : ''}
+      </div>
+    </div>
+
+    <!-- Gate activations -->
+    <div class="smd-section">
+      <div class="smd-label">Gate Activation Values</div>
+      <div class="smd-bar-row">
+        <span class="smd-bar-label" style="color:var(--forget)">Forget fₜ</span>
+        <div class="smd-bar-wrap"><div class="smd-bar-fill" style="width:${fPct}%;background:var(--forget)"></div></div>
+        <span class="smd-bar-val">${rec.forget.toFixed(4)}</span>
+      </div>
+      <div class="smd-bar-row">
+        <span class="smd-bar-label" style="color:var(--input)">Input iₜ</span>
+        <div class="smd-bar-wrap"><div class="smd-bar-fill" style="width:${iPct}%;background:var(--input)"></div></div>
+        <span class="smd-bar-val">${rec.input.toFixed(4)}</span>
+      </div>
+      <div class="smd-bar-row">
+        <span class="smd-bar-label" style="color:var(--update)">Candidate C̃ₜ</span>
+        <div class="smd-bar-wrap"><div class="smd-bar-fill" style="width:${cPct}%;background:var(--update)"></div></div>
+        <span class="smd-bar-val">${rec.candidate.toFixed(4)}</span>
+      </div>
+      <div class="smd-bar-row">
+        <span class="smd-bar-label" style="color:var(--output)">Output oₜ</span>
+        <div class="smd-bar-wrap"><div class="smd-bar-fill" style="width:${oPct}%;background:var(--output)"></div></div>
+        <span class="smd-bar-val">${rec.output.toFixed(4)}</span>
+      </div>
+    </div>
+
+    <!-- Formulas -->
+    <div class="smd-section">
+      <div class="smd-label">Gate Equations (with this step's values)</div>
+      <div class="smd-formula">
+        fₜ = σ(Wf · [h_{t-1}, x_t] + bf) = <span style="color:var(--forget)">${rec.forget.toFixed(4)}</span>
+        &nbsp;<span style="color:var(--text-muted);font-size:10px">// forget gate — ${rec.forget > 0.5 ? 'retaining memory' : 'erasing memory'}</span><br>
+        iₜ = σ(Wi · [h_{t-1}, x_t] + bi) = <span style="color:var(--input)">${rec.input.toFixed(4)}</span>
+        &nbsp;<span style="color:var(--text-muted);font-size:10px">// input gate — ${rec.input > 0.5 ? 'writing new info' : 'suppressing new info'}</span><br>
+        C̃ₜ = tanh(Wc · [h_{t-1}, x_t] + bc) = <span style="color:var(--update)">${rec.candidate.toFixed(4)}</span>
+        &nbsp;<span style="color:var(--text-muted);font-size:10px">// candidate values (range: -1 to 1)</span><br>
+        Cₜ = fₜ ⊙ C_{t-1} + iₜ ⊙ C̃ₜ → avg = <span style="color:var(--cell)">${rec.cellAvg.toFixed(4)}</span>
+        &nbsp;<span style="color:var(--text-muted);font-size:10px">// updated cell state</span><br>
+        oₜ = σ(Wo · [h_{t-1}, x_t] + bo) = <span style="color:var(--output)">${rec.output.toFixed(4)}</span>
+        &nbsp;<span style="color:var(--text-muted);font-size:10px">// output gate — filters cell to hidden</span><br>
+        hₜ = oₜ ⊙ tanh(Cₜ) → avg = <span style="color:var(--gold)">${rec.hidAvg.toFixed(4)}</span>
+        &nbsp;<span style="color:var(--text-muted);font-size:10px">// new hidden state</span>
+      </div>
+    </div>
+
+    <!-- State metrics -->
+    <div class="smd-section">
+      <div class="smd-label">State Metrics After This Step</div>
+      <div class="smd-grid">
+        <div class="smd-card">
+          <div class="smd-card-label">Cell State Avg (Cₜ)</div>
+          <div class="smd-card-val" style="color:var(--cell)">${rec.cellAvg.toFixed(4)}</div>
+          <div class="smd-card-desc">Average magnitude of the LSTM's long-term memory vector after processing "${rec.char}". ${Math.abs(rec.cellAvg) > 0.3 ? 'Significant memory accumulated.' : 'Low memory state — content is near zero.'}</div>
+        </div>
+        <div class="smd-card">
+          <div class="smd-card-label">Hidden State Avg (hₜ)</div>
+          <div class="smd-card-val" style="color:var(--gold)">${rec.hidAvg.toFixed(4)}</div>
+          <div class="smd-card-desc">Average of the hidden state vector h_t — this is the output of the LSTM cell for this timestep, used for next-step prediction.</div>
+        </div>
+        <div class="smd-card">
+          <div class="smd-card-label">Memory Retention</div>
+          <div class="smd-card-val" style="color:${memColor}">${rec.memory}</div>
+          <div class="smd-card-desc">${memText}. Derived from the forget gate average (${rec.forget.toFixed(3)}).</div>
+        </div>
+        <div class="smd-card">
+          <div class="smd-card-label">Sequence Position</div>
+          <div class="smd-card-val" style="color:var(--teal)">${rec.step} / ${simSeq.length}</div>
+          <div class="smd-card-desc">Token "${rec.char}" at position ${rec.step}. ${rec.step === simSeq.length ? 'This is the final step — h_t represents the full sequence encoding.' : `${simSeq.length - rec.step} more token(s) remain.`}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Interpretations -->
+    <div class="smd-section">
+      <div class="smd-label">Detailed Gate Interpretation</div>
+      <div class="smd-interp ${rec.forget > 0.6 ? 'ok' : rec.forget < 0.35 ? 'warn' : ''}" style="margin-bottom:8px">
+        <strong style="color:var(--forget)">Forget Gate (fₜ = ${rec.forget.toFixed(4)}):</strong><br>${fInterp}
+      </div>
+      <div class="smd-interp ${rec.input > 0.6 ? 'ok' : ''}" style="margin-bottom:8px">
+        <strong style="color:var(--input)">Input Gate (iₜ = ${rec.input.toFixed(4)}):</strong><br>${iInterp}
+      </div>
+      <div class="smd-interp" style="margin-bottom:8px">
+        <strong style="color:var(--output)">Output Gate (oₜ = ${rec.output.toFixed(4)}):</strong><br>${oInterp}
+      </div>
+      <div class="smd-interp" style="border-left-color:var(--update)">
+        <strong style="color:var(--update)">Cell State Update:</strong><br>
+        C_t = (${rec.forget.toFixed(3)} × C_{t-1}) + (${rec.input.toFixed(3)} × ${rec.candidate.toFixed(3)}) → avg result: ${rec.cellAvg.toFixed(4)}. 
+        ${rec.forget > rec.input ? 'Old memory dominates — more old context retained than new info written.' : 'New information dominates — the network is updating memory more than retaining old state.'}
+      </div>
+    </div>
+
+    ${deltaHtml}
+
+    <!-- Sequence context -->
+    <div class="smd-section">
+      <div class="smd-label">Sequence Context</div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:2.2;letter-spacing:2px;text-align:center;padding:10px;background:var(--surface2);border-radius:8px">
+        ${simSeq.split('').map((ch, i) => {
+          if (i < rec.step - 1) return `<span style="color:var(--text-muted)">${ch}</span>`;
+          if (i === rec.step - 1) return `<span style="background:var(--gold);color:#0c0a08;padding:2px 6px;border-radius:4px;font-weight:700">${ch}</span>`;
+          return `<span style="color:var(--border2)">${ch}</span>`;
+        }).join('<span style="color:var(--border);margin:0 2px">·</span>')}
+      </div>
+      <div style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:8px;font-family:'IBM Plex Mono',monospace">
+        <span style="color:var(--text-muted)">processed</span> &nbsp;·&nbsp; 
+        <span style="background:var(--gold);color:#0c0a08;padding:1px 6px;border-radius:3px;font-size:9px">current</span> &nbsp;·&nbsp;
+        <span style="color:var(--border2)">upcoming</span>
+      </div>
+    </div>
+  `;
+}
+
+function updatePredictions() {
+  if (!simH || !simVocab.length) return;
+
+  let probs;
+
+  if (trainedWeights) {
+    // Use the real trained output projection: logits = Wy · h + by → softmax
+    const Wy = trainedWeights.W.Wy;
+    const by = trainedWeights.W.by;
+    const logits = Wy.map((row, i) => row.reduce((s, w, j) => s + w * (simH[j] || 0), 0) + by[i]);
+    const sm = softmax(logits);
+    probs = simVocab.map((ch, i) => ({ ch, p: sm[i] }))
+      .sort((a, b) => b.p - a.p).slice(0, 5);
+  } else {
+    // Fallback for random weights: use hidden state similarity heuristic
+    const scores = simVocab.map((ch, i) => {
+      // project hidden state onto a per-character direction using index as seed
+      const s = simH.reduce((acc, h, j) => acc + h * Math.cos((i + 1) * (j + 1)), 0);
+      return { ch, s };
+    });
+    const maxS = Math.max(...scores.map(x => x.s));
+    const exp = scores.map(x => ({ ch: x.ch, e: Math.exp(x.s - maxS) }));
+    const sum = exp.reduce((a, x) => a + x.e, 0);
+    probs = exp.map(x => ({ ch: x.ch, p: x.e / sum })).sort((a, b) => b.p - a.p).slice(0, 5);
+  }
+
+  const colors = ['var(--gold)', 'var(--amber)', 'var(--teal)', 'var(--blue)', 'var(--update)'];
+  document.getElementById('predDisplay').innerHTML = probs.map((x, i) => `
+    <div class="pred-bar">
+      <span class="pred-label">${x.ch === ' ' ? '␣' : x.ch}</span>
+      <div class="pred-track"><div class="pred-fill" style="width:${(x.p * 100).toFixed(0)}%;background:${colors[i]}"></div></div>
+      <span class="pred-pct">${(x.p * 100).toFixed(0)}%</span>
+    </div>`).join('');
+}
+
+function updateLog() {
+  const el = document.getElementById('stepLog');
+  el.innerHTML = '';
+  const recent = simHistory.slice(-10).reverse();
+  recent.forEach((r,i) => {
+    const div = document.createElement('div');
+    div.className = 'log-item' + (i===0?' active':'');
+    div.innerHTML = `<span style="color:var(--gold)">${r.step}.</span> "${r.char}" f=${r.forget.toFixed(2)} i=${r.input.toFixed(2)} o=${r.output.toFixed(2)} h=${r.hidAvg.toFixed(3)}`;
+    el.appendChild(div);
+  });
+}
+
+// ════════════════════════════════════════════════════
+//  CANVAS DIAGRAM
+// ════════════════════════════════════════════════════
+const canvas = document.getElementById('lstmCanvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  canvas.width = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+  drawLSTMDiagram(simHistory[simHistory.length-1] || null);
+}
+window.addEventListener('resize', () => { if (document.getElementById('page-sim').classList.contains('active')) resizeCanvas(); });
+
+function drawLSTMDiagram(rec) {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0,0,W,H);
+
+  // Background grid
+  ctx.strokeStyle = '#1a170966';
+  ctx.lineWidth = 1;
+  for(let x=0;x<W;x+=52){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=0;y<H;y+=52){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+
+  if (!simCell) {
+    ctx.fillStyle = '#7a6e58';
+    ctx.font = "14px 'IBM Plex Mono'";
+    ctx.textAlign = 'center';
+    ctx.fillText('Enter a sequence and press ▶ Play to start', W/2, H/2);
+    return;
+  }
+
+  const cx = W/2, cy = H/2;
+  const boxW = Math.min(580, W*0.78);
+  const boxH = Math.min(320, H*0.72);
+  const bx = cx - boxW/2, by = cy - boxH/2;
+
+  // Main cell box
+  const grad = ctx.createLinearGradient(bx, by, bx, by+boxH);
+  grad.addColorStop(0,'#1a1710');
+  grad.addColorStop(1,'#131109');
+  ctx.fillStyle = grad;
+  ctx.strokeStyle = '#38301e';
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, bx, by, boxW, boxH, 14);
+  ctx.fill(); ctx.stroke();
+
+  // Label
+  ctx.font = "700 12px 'IBM Plex Mono'";
+  ctx.fillStyle = '#7a6e58';
+  ctx.textAlign = 'left';
+  ctx.fillText('LSTM CELL', bx+14, by+18);
+
+  // Cell state highway (top)
+  const csY = by + boxH*0.22;
+  const csX1 = bx + 16, csX2 = bx + boxW - 16;
+  drawArrow(ctx, csX1, csY, csX2, csY, '#60a5fa55', 2, true, true);
+  ctx.font = "10px 'IBM Plex Mono'";
+  ctx.fillStyle = '#60a5fa';
+  ctx.textAlign = 'left';
+  ctx.fillText('C cell state', csX1+4, csY-8);
+
+  // Hidden state highway (bottom)
+  const hsY = by + boxH*0.82;
+  drawArrow(ctx, csX1, hsY, csX2, hsY, '#f0a50055', 2, true, true);
+  ctx.fillStyle = '#f0a500';
+  ctx.textAlign = 'left';
+  ctx.fillText('h hidden state', csX1+4, hsY-8);
+
+  // Gates
+  const gateSpacing = boxW / 5;
+  const gates = [
+    { label:'f', name:'Forget', color:'#ef4444', x: bx+gateSpacing*1,   val: rec?.forget },
+    { label:'i', name:'Input',  color:'#4ade80', x: bx+gateSpacing*2,   val: rec?.input },
+    { label:'C̃', name:'Cand.',  color:'#a78bfa', x: bx+gateSpacing*3,   val: rec?.candidate },
+    { label:'o', name:'Output', color:'#60a5fa', x: bx+gateSpacing*4,   val: rec?.output },
+  ];
+
+  gates.forEach(g => {
+    const gcy = by + boxH/2;
+    const r = 22;
+
+    // Vertical line to cell state
+    ctx.strokeStyle = g.color + '44';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(g.x, csY); ctx.lineTo(g.x, gcy-r); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(g.x, gcy+r); ctx.lineTo(g.x, hsY); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Gate circle
+    const activation = rec ? clamp(g.val !== undefined ? g.val : 0.5, 0, 1) : 0.5;
+    const alpha = Math.round(40 + activation*160).toString(16).padStart(2,'0');
+    const grd = ctx.createRadialGradient(g.x,gcy,2,g.x,gcy,r);
+    grd.addColorStop(0, g.color+alpha);
+    grd.addColorStop(1, g.color+'11');
+    ctx.beginPath(); ctx.arc(g.x, gcy, r, 0, Math.PI*2);
+    ctx.fillStyle = grd; ctx.fill();
+    ctx.strokeStyle = g.color + (rec?'cc':'44');
+    ctx.lineWidth = 1.5; ctx.stroke();
+
+    // Gate symbol
+    ctx.font = "bold 16px 'Instrument Serif'";
+    ctx.fillStyle = g.color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(g.label, g.x, gcy);
+    ctx.textBaseline = 'alphabetic';
+
+    // Gate name
+    ctx.font = "10px 'IBM Plex Mono'";
+    ctx.fillStyle = g.color;
+    ctx.fillText(g.name, g.x, gcy + r + 14);
+
+    // Activation value
+    if (rec) {
+      ctx.font = "bold 11px 'IBM Plex Mono'";
+      ctx.fillStyle = '#f0ead6';
+      ctx.fillText((activation).toFixed(2), g.x, gcy - r - 8);
+    }
+  });
+
+  // Current input token
+  if (rec) {
+    const inputX = bx - 50, inputY = by + boxH/2;
+    ctx.font = "bold 24px 'Instrument Serif'";
+    ctx.fillStyle = '#f0a500';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(rec.char, inputX, inputY);
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = "9px 'IBM Plex Mono'";
+    ctx.fillStyle = '#7a6e58';
+    ctx.fillText('xₜ', inputX, inputY+22);
+    drawArrow(ctx, inputX+18, inputY, bx+16, inputY, '#f0a50066', 1.5);
+  }
+
+  // Step counter top-right
+  ctx.font = "11px 'IBM Plex Mono'";
+  ctx.fillStyle = '#7a6e58';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(`t = ${simStep} / ${simSeq.length}`, bx+boxW-12, by+18);
+
+  // Progress bar along bottom of box
+  if (simSeq.length > 0) {
+    const pBarX = bx+14, pBarY = by+boxH-12;
+    const pBarW = boxW-28, pBarH = 4;
+    ctx.fillStyle = '#1a1710';
+    roundRect(ctx, pBarX, pBarY, pBarW, pBarH, 2);
+    ctx.fill();
+    const prog = simStep/simSeq.length;
+    const grad2 = ctx.createLinearGradient(pBarX,0,pBarX+pBarW,0);
+    grad2.addColorStop(0,'#f0a500'); grad2.addColorStop(1,'#ff6b35');
+    ctx.fillStyle = grad2;
+    roundRect(ctx, pBarX, pBarY, pBarW*prog, pBarH, 2);
+    ctx.fill();
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y); ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w, y+h-r); ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r, y+h); ctx.arcTo(x,y+h,x,y+h-r,r);
+  ctx.lineTo(x, y+r); ctx.arcTo(x,y,x+r,y,r);
+  ctx.closePath();
+}
+function drawArrow(ctx, x1,y1,x2,y2, color, lw, dotStart, dotEnd) {
+  ctx.strokeStyle = color; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  const angle = Math.atan2(y2-y1,x2-x1);
+  const al = 8;
+  ctx.fillStyle = color;
+  if (dotEnd) {
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2-al*Math.cos(angle-0.4), y2-al*Math.sin(angle-0.4));
+    ctx.lineTo(x2-al*Math.cos(angle+0.4), y2-al*Math.sin(angle+0.4));
+    ctx.closePath(); ctx.fill();
+  }
+}
+function clamp(v,mn=0,mx=1){return Math.max(mn,Math.min(mx,v));}
+
+// ════════════════════════════════════════════════════
+//  DOWNLOAD / EXPORT
+// ════════════════════════════════════════════════════
+function buildReport() {
+  const el = document.getElementById('dlContent');
+  if (!simHistory.length) {
+    el.innerHTML = `<div class="no-data"><div class="nd-icon">🔬</div><div class="nd-msg">No simulation data yet.</div><div class="nd-sub" style="margin-bottom:16px">Run a simulation first.</div><button class="btn-gold" onclick="goPage('sim',document.querySelectorAll('.nav-btn')[2])">Go to Simulate →</button></div>`;
+    return;
+  }
+
+  const avgF = (simHistory.reduce((s,r)=>s+r.forget,0)/simHistory.length).toFixed(4);
+  const avgI = (simHistory.reduce((s,r)=>s+r.input,0)/simHistory.length).toFixed(4);
+  const avgO = (simHistory.reduce((s,r)=>s+r.output,0)/simHistory.length).toFixed(4);
+  const avgCell = (simHistory.reduce((s,r)=>s+r.cellAvg,0)/simHistory.length).toFixed(4);
+  const avgHid = (simHistory.reduce((s,r)=>s+r.hidAvg,0)/simHistory.length).toFixed(4);
+  const maxCell = Math.max(...simHistory.map(r=>r.cellAvg)).toFixed(4);
+  const highMem = simHistory.filter(r=>r.memory==='High').length;
+  const medMem = simHistory.filter(r=>r.memory==='Med').length;
+  const lowMem = simHistory.filter(r=>r.memory==='Low').length;
+
+  el.innerHTML = `
+    <div class="report-box">
+      <div class="report-h1">LSTMVis Session Report</div>
+      <div class="report-meta">Generated: ${new Date().toLocaleString()} &nbsp;·&nbsp; Sequence: "${simSeq}" &nbsp;·&nbsp; Hidden Size: ${simHiddenSize} &nbsp;·&nbsp; Steps: ${simHistory.length}</div>
+
+      <div class="report-section">// 1. SESSION PARAMETERS</div>
+      <table class="rtable">
+        <thead><tr><th>Parameter</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Input Sequence</td><td>"${simSeq}"</td></tr>
+          <tr><td>Sequence Length</td><td>${simSeq.length} tokens</td></tr>
+          <tr><td>Hidden Size</td><td>${simHiddenSize} units</td></tr>
+          <tr><td>Vocabulary</td><td>[${simVocab.join(', ')}] — ${simVocab.length} unique tokens</td></tr>
+          <tr><td>Total Parameters</td><td>${4 * (simHiddenSize * (simVocab.length + simHiddenSize) + simHiddenSize)}</td></tr>
+          <tr><td>Steps Completed</td><td>${simHistory.length} / ${simSeq.length}</td></tr>
+        </tbody>
+      </table>
+
+      <div class="report-section">// 2. AGGREGATE STATISTICS</div>
+      <table class="rtable">
+        <thead><tr><th>Metric</th><th>Value</th><th>Interpretation</th></tr></thead>
+        <tbody>
+          <tr><td>Avg Forget Gate</td><td>${avgF}</td><td>${parseFloat(avgF)>0.6?'Strong memory retention tendency':parseFloat(avgF)<0.4?'Aggressive forgetting tendency':'Balanced forget/retain'}</td></tr>
+          <tr><td>Avg Input Gate</td><td>${avgI}</td><td>${parseFloat(avgI)>0.6?'High information write rate':'Selective/moderate writing'}</td></tr>
+          <tr><td>Avg Output Gate</td><td>${avgO}</td><td>${parseFloat(avgO)>0.6?'Strong hidden output signal':'Selective output filtering'}</td></tr>
+          <tr><td>Avg Cell State</td><td>${avgCell}</td><td>Long-term memory magnitude over sequence</td></tr>
+          <tr><td>Peak Cell State</td><td>${maxCell}</td><td>Maximum memory accumulation reached</td></tr>
+          <tr><td>Avg Hidden State</td><td>${avgHid}</td><td>Average output signal per step</td></tr>
+          <tr><td>High Memory Steps</td><td>${highMem} (${(highMem/simHistory.length*100).toFixed(1)}%)</td><td>fₜ > 0.65 — long-term context preserved</td></tr>
+          <tr><td>Medium Memory Steps</td><td>${medMem} (${(medMem/simHistory.length*100).toFixed(1)}%)</td><td>fₜ 0.35–0.65 — partial retention</td></tr>
+          <tr><td>Low Memory Steps</td><td>${lowMem} (${(lowMem/simHistory.length*100).toFixed(1)}%)</td><td>fₜ < 0.35 — memory reset</td></tr>
+        </tbody>
+      </table>
+
+      <div class="report-section">// 3. GATE ACTIVATIONS PER STEP</div>
+      <table class="rtable">
+        <thead><tr><th>#</th><th>Token</th><th>Forget (fₜ)</th><th>Input (iₜ)</th><th>Candidate (C̃ₜ)</th><th>Output (oₜ)</th><th>Cell Avg</th><th>Hidden Avg</th><th>Memory</th></tr></thead>
+        <tbody>${simHistory.map(r=>`<tr>
+          <td>${r.step}</td>
+          <td style="font-weight:700;color:var(--amber)">"${r.char}"</td>
+          <td style="color:var(--forget)">${r.forget.toFixed(4)}</td>
+          <td style="color:var(--input)">${r.input.toFixed(4)}</td>
+          <td style="color:var(--update)">${r.candidate.toFixed(4)}</td>
+          <td style="color:var(--output)">${r.output.toFixed(4)}</td>
+          <td style="color:var(--cell)">${r.cellAvg.toFixed(4)}</td>
+          <td style="color:var(--gold)">${r.hidAvg.toFixed(4)}</td>
+          <td style="color:${r.memory==='High'?'var(--green)':r.memory==='Med'?'var(--amber)':'var(--rose)'}">${r.memory}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+
+      <div class="report-section">// 4. STEP-BY-STEP INTERPRETATION</div>
+      ${simHistory.map(r => `
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 18px;margin-bottom:10px">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--amber);margin-bottom:8px">
+            STEP ${r.step} — TOKEN: "${r.char}"
+          </div>
+          <div style="font-size:12px;color:var(--text-dim);line-height:1.8">
+            <strong style="color:var(--forget)">Forget Gate (${r.forget.toFixed(4)}):</strong> 
+            ${r.forget > 0.7 ? 'HIGH — long-term memory strongly retained; prior context preserved.' : r.forget < 0.35 ? 'LOW — prior cell state largely erased; context reset.' : 'MODERATE — selective retention of prior memory.'}<br>
+            <strong style="color:var(--input)">Input Gate (${r.input.toFixed(4)}):</strong> 
+            ${r.input > 0.65 ? 'HIGH — substantial new information written to cell state.' : r.input < 0.35 ? 'LOW — minimal new information stored; gate suppressed.' : 'MODERATE — selective cell state update.'}<br>
+            <strong style="color:var(--update)">Candidate (${r.candidate.toFixed(4)}):</strong> Proposed new cell value (tanh output, range −1 to 1).<br>
+            <strong style="color:var(--output)">Output Gate (${r.output.toFixed(4)}):</strong> 
+            ${r.output > 0.65 ? 'HIGH — rich hidden state h_t exposed to next layer.' : r.output < 0.35 ? 'LOW — suppressed output; h_t carries weak signal.' : 'MODERATE — selective hidden state output.'}<br>
+            <strong style="color:var(--cell)">Cell Update:</strong> Cₜ = (${r.forget.toFixed(3)} × C_{t-1}) + (${r.input.toFixed(3)} × ${r.candidate.toFixed(3)}) → avg: ${r.cellAvg.toFixed(4)} &nbsp;|&nbsp;
+            <strong style="color:var(--gold)">Hidden:</strong> hₜ avg = ${r.hidAvg.toFixed(4)} &nbsp;|&nbsp;
+            <strong style="color:${r.memory==='High'?'var(--green)':r.memory==='Med'?'var(--amber)':'var(--rose)'}">Memory: ${r.memory}</strong>
+          </div>
+        </div>`).join('')}
+    </div>`;
+}
+
+function dlTxt() {
+  if (!simHistory.length){showToast('Run a simulation first!','info');return;}
+  const incG=document.getElementById('dlGates').checked;
+  const incS=document.getElementById('dlStates').checked;
+  const incPreds=document.getElementById('dlPreds').checked;
+  const incParams=document.getElementById('dlParams').checked;
+
+  const hr = '='.repeat(70);
+  const hr2 = '-'.repeat(70);
+  let txt = hr + '\n';
+  txt += '         LSTMVIS — DETAILED SESSION REPORT\n';
+  txt += '         Long Short-Term Memory Explorer\n';
+  txt += hr + '\n\n';
+
+  // Section 1: Session Parameters
+  txt += hr2 + '\n';
+  txt += ' 1. SESSION PARAMETERS\n';
+  txt += hr2 + '\n';
+  txt += `   Timestamp      : ${new Date().toLocaleString()}\n`;
+  txt += `   Input Sequence : "${simSeq}"\n`;
+  txt += `   Sequence Length: ${simSeq.length} tokens\n`;
+  txt += `   Hidden Size    : ${simHiddenSize} units\n`;
+  txt += `   Vocabulary     : [${simVocab.join(', ')}] (${simVocab.length} unique tokens)\n`;
+  txt += `   Steps Completed: ${simHistory.length} / ${simSeq.length}\n\n`;
+
+  // Section 2: LSTM Architecture Overview
+  txt += hr2 + '\n';
+  txt += ' 2. LSTM ARCHITECTURE OVERVIEW\n';
+  txt += hr2 + '\n';
+  txt += `   Input Size  : ${simVocab.length} (one-hot encoded vocabulary)\n`;
+  txt += `   Hidden Size : ${simHiddenSize} units\n`;
+  txt += `   Total Params: ${4 * (simHiddenSize * (simVocab.length + simHiddenSize) + simHiddenSize)} (4 weight matrices + 4 bias vectors)\n`;
+  txt += '\n';
+  txt += '   LSTM Gate Equations:\n';
+  txt += '   fₜ = σ(Wf · [h_{t-1}, xₜ] + bf)        // Forget Gate\n';
+  txt += '   iₜ = σ(Wi · [h_{t-1}, xₜ] + bi)        // Input Gate\n';
+  txt += '   C̃ₜ = tanh(Wc · [h_{t-1}, xₜ] + bc)    // Candidate Values\n';
+  txt += '   Cₜ = fₜ ⊙ C_{t-1} + iₜ ⊙ C̃ₜ           // Cell State Update\n';
+  txt += '   oₜ = σ(Wo · [h_{t-1}, xₜ] + bo)        // Output Gate\n';
+  txt += '   hₜ = oₜ ⊙ tanh(Cₜ)                      // Hidden State\n\n';
+
+  // Section 3: Aggregate Statistics
+  if (simHistory.length > 0) {
+    const avgF = simHistory.reduce((s,r)=>s+r.forget,0)/simHistory.length;
+    const avgI = simHistory.reduce((s,r)=>s+r.input,0)/simHistory.length;
+    const avgC = simHistory.reduce((s,r)=>s+r.candidate,0)/simHistory.length;
+    const avgO = simHistory.reduce((s,r)=>s+r.output,0)/simHistory.length;
+    const avgCell = simHistory.reduce((s,r)=>s+r.cellAvg,0)/simHistory.length;
+    const avgHid = simHistory.reduce((s,r)=>s+r.hidAvg,0)/simHistory.length;
+    const maxCell = Math.max(...simHistory.map(r=>r.cellAvg));
+    const minCell = Math.min(...simHistory.map(r=>r.cellAvg));
+    const highMem = simHistory.filter(r=>r.memory==='High').length;
+    const medMem = simHistory.filter(r=>r.memory==='Med').length;
+    const lowMem = simHistory.filter(r=>r.memory==='Low').length;
+
+    txt += hr2 + '\n';
+    txt += ' 3. AGGREGATE STATISTICS (over all steps)\n';
+    txt += hr2 + '\n';
+    txt += `   Gate Averages:\n`;
+    txt += `     Forget Gate (avg)    : ${avgF.toFixed(4)}  ${avgF > 0.6 ? '→ Strong memory retention tendency' : avgF < 0.4 ? '→ Aggressive forgetting tendency' : '→ Balanced forget/retain'}\n`;
+    txt += `     Input Gate (avg)     : ${avgI.toFixed(4)}  ${avgI > 0.6 ? '→ High information write rate' : avgI < 0.4 ? '→ Selective writing' : '→ Moderate input activity'}\n`;
+    txt += `     Candidate Gate (avg) : ${avgC.toFixed(4)}  (range: -1 to 1; tanh output)\n`;
+    txt += `     Output Gate (avg)    : ${avgO.toFixed(4)}  ${avgO > 0.6 ? '→ Strong hidden state output' : '→ Selective output filtering'}\n\n`;
+    txt += `   State Averages:\n`;
+    txt += `     Cell State Avg       : ${avgCell.toFixed(4)}\n`;
+    txt += `     Cell State Max       : ${maxCell.toFixed(4)}\n`;
+    txt += `     Cell State Min       : ${minCell.toFixed(4)}\n`;
+    txt += `     Hidden State Avg     : ${avgHid.toFixed(4)}\n\n`;
+    txt += `   Memory Retention Distribution:\n`;
+    txt += `     High (fₜ > 0.65)     : ${highMem} steps (${(highMem/simHistory.length*100).toFixed(1)}%)\n`;
+    txt += `     Medium (0.35–0.65)   : ${medMem} steps (${(medMem/simHistory.length*100).toFixed(1)}%)\n`;
+    txt += `     Low (fₜ < 0.35)      : ${lowMem} steps (${(lowMem/simHistory.length*100).toFixed(1)}%)\n\n`;
+  }
+
+  // Section 4: Step-by-Step Detailed Data
+  if (incG || incS) {
+    txt += hr2 + '\n';
+    txt += ' 4. STEP-BY-STEP GATE ACTIVATIONS & STATE VALUES\n';
+    txt += hr2 + '\n';
+    txt += `   ${'Step'.padEnd(6)} ${'Char'.padEnd(6)} ${'Forget'.padEnd(10)} ${'Input'.padEnd(10)} ${'Candidate'.padEnd(12)} ${'Output'.padEnd(10)} ${'Cell Avg'.padEnd(11)} ${'Hid Avg'.padEnd(10)} Memory\n`;
+    txt += `   ${'-'.repeat(6)} ${'-'.repeat(6)} ${'-'.repeat(10)} ${'-'.repeat(10)} ${'-'.repeat(12)} ${'-'.repeat(10)} ${'-'.repeat(11)} ${'-'.repeat(10)} ${'-'.repeat(6)}\n`;
+
+    simHistory.forEach(r => {
+      txt += `   ${String(r.step).padEnd(6)} ${r.char.padEnd(6)} `;
+      if (incG) {
+        txt += `${r.forget.toFixed(4).padEnd(10)} ${r.input.toFixed(4).padEnd(10)} ${r.candidate.toFixed(4).padEnd(12)} ${r.output.toFixed(4).padEnd(10)} `;
+      }
+      if (incS) {
+        txt += `${r.cellAvg.toFixed(4).padEnd(11)} ${r.hidAvg.toFixed(4).padEnd(10)} ${r.memory}`;
+      }
+      txt += '\n';
+    });
+    txt += '\n';
+  }
+
+  // Section 5: Interpretation per step
+  txt += hr2 + '\n';
+  txt += ' 5. STEP-BY-STEP INTERPRETATION\n';
+  txt += hr2 + '\n';
+  simHistory.forEach(r => {
+    txt += `\n   Step ${r.step}: Token "${r.char}"\n`;
+    txt += `   ${'·'.repeat(40)}\n`;
+    const fDesc = r.forget > 0.7 ? 'HIGH — long-term memory strongly retained' : r.forget < 0.35 ? 'LOW — prior memory largely erased' : 'MODERATE — selective memory retention';
+    const iDesc = r.input > 0.65 ? 'HIGH — substantial new info written to cell' : r.input < 0.35 ? 'LOW — minimal new information stored' : 'MODERATE — selective cell update';
+    const oDesc = r.output > 0.65 ? 'HIGH — rich hidden state output' : r.output < 0.35 ? 'LOW — suppressed output signal' : 'MODERATE — selective output';
+    txt += `   Forget Gate : ${r.forget.toFixed(4)}  → ${fDesc}\n`;
+    txt += `   Input Gate  : ${r.input.toFixed(4)}  → ${iDesc}\n`;
+    txt += `   Candidate   : ${r.candidate.toFixed(4)}  (proposed cell update value)\n`;
+    txt += `   Output Gate : ${r.output.toFixed(4)}  → ${oDesc}\n`;
+    txt += `   Cell Update : C_t = (${r.forget.toFixed(3)} × C_{t-1}) + (${r.input.toFixed(3)} × ${r.candidate.toFixed(3)}) = ${r.cellAvg.toFixed(4)} avg\n`;
+    txt += `   Hidden Out  : h_t avg = ${r.hidAvg.toFixed(4)}  |  Memory: ${r.memory}\n`;
+  });
+
+  txt += '\n\n' + hr + '\n';
+  txt += '  Generated by LSTMVis — Long Short-Term Memory Explorer\n';
+  txt += '  Category 2: Machine Learning · Web-Based Interactive Visualization\n';
+  txt += hr;
+
+  blobDl(txt,'lstm_report.txt','text/plain');
+  showToast('Detailed report downloaded!','ok');
+}
+
+function dlCsv() {
+  if (!simHistory.length){showToast('Run a simulation first!','info');return;}
+  let csv='Step,Char,Forget,Input,Candidate,Output,CellAvg,HiddenAvg,MemoryRetained\n';
+  simHistory.forEach(r=>{
+    csv+=`${r.step},${r.char},${r.forget.toFixed(4)},${r.input.toFixed(4)},${r.candidate.toFixed(4)},${r.output.toFixed(4)},${r.cellAvg.toFixed(4)},${r.hidAvg.toFixed(4)},${r.memory}\n`;
+  });
+  blobDl(csv,'lstm_steps.csv','text/csv');
+  showToast('CSV downloaded!','ok');
+}
+
+function blobDl(content, filename, type) {
+  const blob=new Blob([content],{type});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(a.href);
+}
+
+function showToast(msg, type='info') {
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className=`toast ${type} show`;
+  setTimeout(()=>t.classList.remove('show'),2800);
+}
+
+
+// ════════════════════════════════════════════════════
+//  HELP MODAL
+// ════════════════════════════════════════════════════
+function showHelp() {
+  document.getElementById('helpModal').classList.add('open');
+}
+function closeHelp() {
+  document.getElementById('helpModal').classList.remove('open');
+}
+document.addEventListener('keydown', e => { if(e.key==='Escape') closeHelp(); });
+
+// ════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════
+setTimeout(()=>{
+  resizeCanvas();
+  initSim();
+},120);
+</script>
+</body>
+</html>
