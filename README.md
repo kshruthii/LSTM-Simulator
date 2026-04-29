@@ -1,3 +1,4 @@
 SITE : https://kshruthii.github.io/LSTM-Simulator/
+
 LSTMVis (LSTM Simulator) is an interactive web-based tool that helps users understand how Long Short-Term Memory (LSTM) networks process sequential data by visualizing internal operations in real time. It allows users to input sequences and observe how the cell state, hidden state, and gates (forget, input, and output) evolve at each time step, making abstract concepts like memory retention and vanishing gradients easier to grasp. Alongside simulation, it includes built-in learning content and step-by-step examples, providing both theoretical and practical insight into LSTM behavior in a single platform
 LSTM
